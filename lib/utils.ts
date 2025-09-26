@@ -98,14 +98,29 @@ export function sanitizeText(text: string) {
 }
 
 export function convertToUIMessages(messages: DBMessage[]): ChatMessage[] {
-  return messages.map((message) => ({
-    id: message.id,
-    role: message.role as 'user' | 'assistant' | 'system',
-    parts: message.parts as UIMessagePart<CustomUIDataTypes, ChatTools>[],
-    metadata: {
-      createdAt: formatISO(message.createdAt),
-    },
-  }));
+  console.log('Converting DB messages to UI messages:', messages.length);
+
+  return messages.map((message, index) => {
+    console.log(`Converting message ${index}:`, {
+      id: message.id,
+      role: message.role,
+      parts: message.parts,
+      partsType: typeof message.parts,
+      hasParts: !!message.parts
+    });
+
+    const uiMessage = {
+      id: message.id,
+      role: message.role as 'user' | 'assistant' | 'system',
+      parts: message.parts as UIMessagePart<CustomUIDataTypes, ChatTools>[],
+      metadata: {
+        createdAt: formatISO(message.createdAt),
+      },
+    };
+
+    console.log(`Converted message ${index}:`, uiMessage);
+    return uiMessage;
+  });
 }
 
 export function getTextFromMessage(message: ChatMessage): string {
@@ -113,4 +128,45 @@ export function getTextFromMessage(message: ChatMessage): string {
     .filter((part) => part.type === 'text')
     .map((part) => part.text)
     .join('');
+}
+
+export function convertMessagePartsToStrings(parts: any[]): string[] {
+  console.log('Converting message parts to strings:', parts);
+  if (!parts || !Array.isArray(parts)) {
+    console.log('Parts is not an array or is null/undefined, returning empty array');
+    return [];
+  }
+
+  return parts.map((part, index) => {
+    console.log(`Processing part ${index}:`, part, 'Type:', typeof part);
+
+    if (!part) {
+      console.log(`Part ${index} is null/undefined, returning empty string`);
+      return '';
+    }
+
+    if (part.type === 'text' && part.text !== undefined) {
+      console.log(`Part ${index} is text type with text:`, part.text);
+      return part.text;
+    } else if (part.type === 'data-textDelta' && part.data !== undefined) {
+      console.log(`Part ${index} is data-textDelta type with data:`, part.data);
+      return part.data;
+    } else if (part.text !== undefined) {
+      // Fallback: if it has a text property but different type
+      console.log(`Part ${index} has text property (fallback):`, part.text);
+      return part.text;
+    } else if (part.data !== undefined) {
+      // Fallback: if it has a data property but different type
+      console.log(`Part ${index} has data property (fallback):`, part.data);
+      return part.data;
+    } else {
+      // For other types, convert to string representation
+      console.log(`Part ${index} is unknown type, converting to string:`, part);
+      try {
+        return JSON.stringify(part);
+      } catch {
+        return String(part);
+      }
+    }
+  });
 }

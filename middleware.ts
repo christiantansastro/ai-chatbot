@@ -1,6 +1,23 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { getToken } from "next-auth/jwt";
-import { guestRegex, isDevelopmentEnvironment } from "./lib/constants";
+import { auth } from "./app/(auth)/auth";
+import { guestRegex } from "./lib/constants";
+import { databaseService, DatabaseConfigLoader } from "./lib/db/database-factory";
+
+// Initialize database service for middleware
+let middlewareDbInitialized = false;
+async function ensureMiddlewareDbInitialized() {
+  if (!middlewareDbInitialized) {
+    try {
+      const config = DatabaseConfigLoader.loadFromEnvironment();
+      await databaseService.initialize(config);
+      middlewareDbInitialized = true;
+      console.log('Middleware database service initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize middleware database service:', error);
+      // Don't throw here - let middleware continue to work
+    }
+  }
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -17,23 +34,26 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = await getToken({
-    req: request,
-    secret: process.env.AUTH_SECRET,
-    secureCookie: !isDevelopmentEnvironment,
-  });
+  // Ensure database is initialized for middleware
+  await ensureMiddlewareDbInitialized();
 
-  if (!token) {
-    const redirectUrl = encodeURIComponent(request.url);
+  // Check authentication using NextAuth v5 auth function
+  const session = await auth();
 
-    return NextResponse.redirect(
-      new URL(`/api/auth/guest?redirectUrl=${redirectUrl}`, request.url)
-    );
+  if (!session) {
+    // Allow access to login and register pages for unauthenticated users
+    if (["/login", "/register"].includes(pathname)) {
+      return NextResponse.next();
+    }
+
+    // Redirect to login for protected routes
+    return NextResponse.redirect(new URL("/login", request.url));
   }
 
-  const isGuest = guestRegex.test(token?.email ?? "");
+  const isGuest = guestRegex.test(session.user?.email ?? "");
 
-  if (token && !isGuest && ["/login", "/register"].includes(pathname)) {
+  // Redirect authenticated users away from login/register pages
+  if (session && !isGuest && ["/login", "/register"].includes(pathname)) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 

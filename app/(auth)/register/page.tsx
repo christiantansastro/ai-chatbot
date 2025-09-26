@@ -3,50 +3,54 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { useActionState, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthForm } from "@/components/auth-form";
 import { SubmitButton } from "@/components/submit-button";
 import { toast } from "@/components/toast";
-import { type RegisterActionState, register } from "../actions";
+import { signUp } from "../auth";
 
 export default function Page() {
   const router = useRouter();
+  const { data: session, status } = useSession();
 
   const [email, setEmail] = useState("");
   const [isSuccessful, setIsSuccessful] = useState(false);
-
-  const [state, formAction] = useActionState<RegisterActionState, FormData>(
-    register,
-    {
-      status: "idle",
-    }
-  );
-
-  const { update: updateSession } = useSession();
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (state.status === "user_exists") {
-      toast({ type: "error", description: "Account already exists!" });
-    } else if (state.status === "failed") {
-      toast({ type: "error", description: "Failed to create account!" });
-    } else if (state.status === "invalid_data") {
+    if (session && status === "authenticated") {
+      router.push("/");
+    }
+  }, [session, status, router]);
+
+  const handleSubmit = async (formData: FormData) => {
+    setIsLoading(true);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    setEmail(email);
+
+    try {
+      await signUp(email, password);
+      setIsSuccessful(true);
+      toast({
+        type: "success",
+        description: "Account created successfully! Please check your email to confirm your account.",
+      });
+
+      // Redirect to login after a short delay
+      setTimeout(() => {
+        router.push("/login");
+      }, 2000);
+    } catch (error) {
+      console.error("Sign up error:", error);
       toast({
         type: "error",
-        description: "Failed validating your submission!",
+        description: "Failed to create account. Please try again.",
       });
-    } else if (state.status === "success") {
-      toast({ type: "success", description: "Account created successfully!" });
-
-      setIsSuccessful(true);
-      updateSession();
-      router.refresh();
+    } finally {
+      setIsLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, router.refresh, updateSession]);
-
-  const handleSubmit = (formData: FormData) => {
-    setEmail(formData.get("email") as string);
-    formAction(formData);
   };
 
   return (
@@ -59,7 +63,9 @@ export default function Page() {
           </p>
         </div>
         <AuthForm action={handleSubmit} defaultEmail={email}>
-          <SubmitButton isSuccessful={isSuccessful}>Sign Up</SubmitButton>
+          <SubmitButton isSuccessful={isSuccessful}>
+            {isLoading ? "Creating account..." : "Sign Up"}
+          </SubmitButton>
           <p className="mt-4 text-center text-gray-600 text-sm dark:text-zinc-400">
             {"Already have an account? "}
             <Link

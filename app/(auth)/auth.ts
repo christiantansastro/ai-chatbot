@@ -1,95 +1,200 @@
-import { compare } from "bcrypt-ts";
-import NextAuth, { type DefaultSession } from "next-auth";
-import type { DefaultJWT } from "next-auth/jwt";
+import { createClient } from '@supabase/supabase-js';
+import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { DUMMY_PASSWORD } from "@/lib/constants";
-import { createGuestUser, getUser } from "@/lib/db/queries";
-import { authConfig } from "./auth.config";
+import { databaseService, DatabaseConfigLoader } from "@/lib/db/database-factory";
 
 export type UserType = "guest" | "regular";
 
-declare module "next-auth" {
-  interface Session extends DefaultSession {
-    user: {
-      id: string;
-      type: UserType;
-    } & DefaultSession["user"];
-  }
+// Initialize Supabase client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // biome-ignore lint/nursery/useConsistentTypeDefinitions: "Required"
-  interface User {
-    id?: string;
-    email?: string | null;
-    type: UserType;
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables. Please check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in your .env.local file.');
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+// Initialize database service
+let databaseInitialized = false;
+async function ensureDatabaseInitialized() {
+  if (!databaseInitialized) {
+    try {
+      const config = DatabaseConfigLoader.loadFromEnvironment();
+      await databaseService.initialize(config);
+      databaseInitialized = true;
+      console.log('Database service initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize database service:', error);
+      throw error;
+    }
   }
 }
 
-declare module "next-auth/jwt" {
-  interface JWT extends DefaultJWT {
-    id: string;
-    type: UserType;
-  }
-}
-
-export const {
-  handlers: { GET, POST },
-  auth,
-  signIn,
-  signOut,
-} = NextAuth({
-  ...authConfig,
+export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
-      credentials: {},
-      async authorize({ email, password }: any) {
-        const users = await getUser(email);
-
-        if (users.length === 0) {
-          await compare(password, DUMMY_PASSWORD);
+      id: "supabase",
+      name: "Supabase",
+      credentials: {
+        email: { label: "Email", type: "email" },
+        password: { label: "Password", type: "password" }
+      },
+      async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
           return null;
         }
 
-        const [user] = users;
+        try {
+          // Ensure database is initialized
+          await ensureDatabaseInitialized();
 
-        if (!user.password) {
-          await compare(password, DUMMY_PASSWORD);
+          // Sign in with Supabase Auth
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: credentials.email as string,
+            password: credentials.password as string,
+          });
+
+          if (error || !data.user) {
+            console.error('Supabase auth error:', error);
+            return null;
+          }
+
+          // Get user data from our database
+          const users = await databaseService.getUser(data.user.email!);
+
+          if (users.length === 0) {
+            // Create user in our database if they don't exist
+            try {
+              const newUser = await databaseService.createUser({
+                id: data.user.id,
+                email: data.user.email!,
+                password: DUMMY_PASSWORD, // We don't store passwords in our DB since Supabase handles auth
+                type: "regular" as const
+              });
+
+              return {
+                id: newUser.id,
+                email: newUser.email,
+                type: "regular" as UserType
+              };
+            } catch (createError) {
+              console.error('Failed to create user in database:', createError);
+              // Return basic user info even if database creation fails
+              return {
+                id: data.user.id,
+                email: data.user.email!,
+                type: "regular" as UserType
+              };
+            }
+          }
+
+          const [user] = users;
+          return {
+            id: user.id || data.user.id,
+            email: user.email,
+            type: "regular" as UserType
+          };
+        } catch (error) {
+          console.error('Auth error:', error);
           return null;
         }
-
-        const passwordsMatch = await compare(password, user.password);
-
-        if (!passwordsMatch) {
-          return null;
-        }
-
-        return { ...user, type: "regular" };
       },
     }),
     Credentials({
       id: "guest",
+      name: "Guest",
       credentials: {},
       async authorize() {
-        const [guestUser] = await createGuestUser();
-        return { ...guestUser, type: "guest" };
+        try {
+          // Ensure database is initialized
+          await ensureDatabaseInitialized();
+
+          // Create a guest user in Supabase Auth
+          const { data, error } = await supabase.auth.signUp({
+            email: `guest-${Date.now()}@guest.local`,
+            password: DUMMY_PASSWORD,
+            options: {
+              data: {
+                type: 'guest'
+              }
+            }
+          });
+
+          if (error || !data.user) {
+            console.error('Guest signup error:', error);
+            throw error;
+          }
+
+          // Create guest user in our database
+          try {
+            const guestUser = await databaseService.createUser({
+              id: data.user.id,
+              email: data.user.email!,
+              password: DUMMY_PASSWORD,
+              type: "guest" as const
+            });
+
+            return {
+              id: guestUser.id,
+              email: guestUser.email,
+              type: "guest" as UserType
+            };
+          } catch (createError) {
+            console.error('Failed to create guest user in database:', createError);
+            // Return basic guest user info even if database creation fails
+            return {
+              id: data.user.id,
+              email: data.user.email!,
+              type: "guest" as UserType
+            };
+          }
+        } catch (error) {
+          console.error('Guest auth error:', error);
+          return null;
+        }
       },
     }),
   ],
   callbacks: {
-    jwt({ token, user }) {
+    async jwt({ token, user }: any) {
       if (user) {
-        token.id = user.id as string;
+        token.id = user.id;
         token.type = user.type;
       }
-
       return token;
     },
-    session({ session, token }) {
-      if (session.user) {
-        session.user.id = token.id;
-        session.user.type = token.type;
+    async session({ session, token }: any) {
+      if (session.user && token) {
+        session.user.id = token.id as string;
+        (session.user as any).type = token.type;
       }
-
       return session;
     },
   },
+  pages: {
+    signIn: "/login",
+    error: "/login",
+  },
+  session: {
+    strategy: "jwt" as const,
+  },
+  secret: process.env.NEXTAUTH_SECRET,
 });
+
+// Export auth functions for use in API routes
+export async function signUp(email: string, password: string) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export { supabase };

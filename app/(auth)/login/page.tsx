@@ -2,51 +2,64 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
-import { useActionState, useEffect, useState } from "react";
+import { useSession, signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
 
 import { AuthForm } from "@/components/auth-form";
 import { SubmitButton } from "@/components/submit-button";
 import { toast } from "@/components/toast";
-import { type LoginActionState, login } from "../actions";
 
 export default function Page() {
   const router = useRouter();
+  const { data: session, status } = useSession();
 
   const [email, setEmail] = useState("");
   const [isSuccessful, setIsSuccessful] = useState(false);
-
-  const [state, formAction] = useActionState<LoginActionState, FormData>(
-    login,
-    {
-      status: "idle",
-    }
-  );
-
-  const { update: updateSession } = useSession();
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (state.status === "failed") {
-      toast({
-        type: "error",
-        description: "Invalid credentials!",
-      });
-    } else if (state.status === "invalid_data") {
-      toast({
-        type: "error",
-        description: "Failed validating your submission!",
-      });
-    } else if (state.status === "success") {
-      setIsSuccessful(true);
-      updateSession();
-      router.refresh();
+    if (session && status === "authenticated") {
+      router.push("/");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.status, router.refresh, updateSession]);
+  }, [session, status, router]);
 
-  const handleSubmit = (formData: FormData) => {
-    setEmail(formData.get("email") as string);
-    formAction(formData);
+  const handleSubmit = async (formData: FormData) => {
+    setIsLoading(true);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    setEmail(email);
+
+    try {
+      const result = await signIn("supabase", {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        throw new Error(result.error);
+      }
+
+      setIsSuccessful(true);
+      toast({
+        type: "success",
+        description: "Successfully signed in!",
+      });
+
+      // Small delay to ensure session is updated
+      setTimeout(() => {
+        router.push("/");
+      }, 100);
+    } catch (error) {
+      console.error("Sign in error:", error);
+      toast({
+        type: "error",
+        description: "Invalid credentials or sign in failed!",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -59,7 +72,9 @@ export default function Page() {
           </p>
         </div>
         <AuthForm action={handleSubmit} defaultEmail={email}>
-          <SubmitButton isSuccessful={isSuccessful}>Sign in</SubmitButton>
+          <SubmitButton isSuccessful={isSuccessful}>
+            {isLoading ? "Signing in..." : "Sign in"}
+          </SubmitButton>
           <p className="mt-4 text-center text-gray-600 text-sm dark:text-zinc-400">
             {"Don't have an account? "}
             <Link

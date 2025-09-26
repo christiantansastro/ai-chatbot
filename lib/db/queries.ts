@@ -1,50 +1,72 @@
 import "server-only";
 
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gt,
-  gte,
-  inArray,
-  lt,
-  type SQL,
-} from "drizzle-orm";
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import type { ArtifactKind } from "@/components/artifact";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { ChatSDKError } from "../errors";
 import type { AppUsage } from "../usage";
 import { generateUUID } from "../utils";
-import {
-  type Chat,
-  chat,
-  type DBMessage,
-  document,
-  message,
-  type Suggestion,
-  stream,
-  suggestion,
-  type User,
-  user,
-  vote,
-} from "./schema";
+import { databaseService } from "./database-factory";
 import { generateHashedPassword } from "./utils";
 
-// Optionally, if not using email/pass login, you can
-// use the Drizzle adapter for Auth.js / NextAuth
-// https://authjs.dev/reference/adapter/drizzle
+// Type definitions for our database operations
+interface User {
+  id: string;
+  email: string;
+  password_hash?: string;
+  user_metadata?: any;
+  created_at?: Date;
+  updated_at?: Date;
+}
 
-// biome-ignore lint: Forbidden non-null assertion.
-const client = postgres(process.env.POSTGRES_URL!);
-const db = drizzle(client);
+interface Chat {
+  id: string;
+  userId: string;
+  title: string;
+  visibility: 'public' | 'private';
+  lastContext?: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+interface DBMessage {
+  id: string;
+  chatId: string;
+  role: 'user' | 'assistant' | 'system';
+  parts: any[];
+  attachments?: any[];
+  createdAt: Date;
+}
+
+interface Vote {
+  chatId: string;
+  messageId: string;
+  isUpvoted: boolean;
+}
+
+interface Document {
+  id: string;
+  title: string;
+  content?: string;
+  kind: ArtifactKind;
+  userId: string;
+  createdAt: Date;
+}
+
+interface Suggestion {
+  id: string;
+  documentId: string;
+  documentCreatedAt: Date;
+  originalText: string;
+  suggestedText: string;
+  description?: string;
+  isResolved: boolean;
+  userId: string;
+  createdAt: Date;
+}
 
 export async function getUser(email: string): Promise<User[]> {
   try {
-    return await db.select().from(user).where(eq(user.email, email));
+    return await databaseService.getUser(email);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -57,7 +79,12 @@ export async function createUser(email: string, password: string) {
   const hashedPassword = generateHashedPassword(password);
 
   try {
-    return await db.insert(user).values({ email, password: hashedPassword });
+    return await databaseService.createUser({
+      id: generateUUID(),
+      email,
+      password: hashedPassword,
+      type: 'regular'
+    });
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to create user");
   }
@@ -68,10 +95,11 @@ export async function createGuestUser() {
   const password = generateHashedPassword(generateUUID());
 
   try {
-    return await db.insert(user).values({ email, password }).returning({
-      id: user.id,
-      email: user.email,
-    });
+    const guestUser = await databaseService.createGuestUser();
+    return {
+      id: guestUser.id,
+      email: guestUser.email,
+    };
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -92,13 +120,18 @@ export async function saveChat({
   visibility: VisibilityType;
 }) {
   try {
-    return await db.insert(chat).values({
+    const savedChat = await databaseService.saveChat({
       id,
-      createdAt: new Date(),
       userId,
       title,
       visibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastContext: {}
     });
+
+    // Return the saved chat data (which includes the database-generated ID)
+    return savedChat;
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to save chat");
   }
@@ -106,15 +139,7 @@ export async function saveChat({
 
 export async function deleteChatById({ id }: { id: string }) {
   try {
-    await db.delete(vote).where(eq(vote.chatId, id));
-    await db.delete(message).where(eq(message.chatId, id));
-    await db.delete(stream).where(eq(stream.chatId, id));
-
-    const [chatsDeleted] = await db
-      .delete(chat)
-      .where(eq(chat.id, id))
-      .returning();
-    return chatsDeleted;
+    return await databaseService.deleteChatById(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -135,63 +160,19 @@ export async function getChatsByUserId({
   endingBefore: string | null;
 }) {
   try {
-    const extendedLimit = limit + 1;
+    const options: any = { limit };
 
-    const query = (whereCondition?: SQL<any>) =>
-      db
-        .select()
-        .from(chat)
-        .where(
-          whereCondition
-            ? and(whereCondition, eq(chat.userId, id))
-            : eq(chat.userId, id)
-        )
-        .orderBy(desc(chat.createdAt))
-        .limit(extendedLimit);
-
-    let filteredChats: Chat[] = [];
-
-    if (startingAfter) {
-      const [selectedChat] = await db
-        .select()
-        .from(chat)
-        .where(eq(chat.id, startingAfter))
-        .limit(1);
-
-      if (!selectedChat) {
-        throw new ChatSDKError(
-          "not_found:database",
-          `Chat with id ${startingAfter} not found`
-        );
-      }
-
-      filteredChats = await query(gt(chat.createdAt, selectedChat.createdAt));
-    } else if (endingBefore) {
-      const [selectedChat] = await db
-        .select()
-        .from(chat)
-        .where(eq(chat.id, endingBefore))
-        .limit(1);
-
-      if (!selectedChat) {
-        throw new ChatSDKError(
-          "not_found:database",
-          `Chat with id ${endingBefore} not found`
-        );
-      }
-
-      filteredChats = await query(lt(chat.createdAt, selectedChat.createdAt));
+    if (startingAfter || endingBefore) {
+      // For Supabase, we'll need to implement pagination differently
+      // This is a simplified version - in production you might want to use cursors
+      const chats = await databaseService.getChatsByUserId(id, options);
+      return chats;
     } else {
-      filteredChats = await query();
+      const chats = await databaseService.getChatsByUserId(id, options);
+      return chats;
     }
-
-    const hasMore = filteredChats.length > limit;
-
-    return {
-      chats: hasMore ? filteredChats.slice(0, limit) : filteredChats,
-      hasMore,
-    };
-  } catch (_error) {
+  } catch (error) {
+    console.error('Error in getChatsByUserId:', error);
     throw new ChatSDKError(
       "bad_request:database",
       "Failed to get chats by user id"
@@ -201,12 +182,7 @@ export async function getChatsByUserId({
 
 export async function getChatById({ id }: { id: string }) {
   try {
-    const [selectedChat] = await db.select().from(chat).where(eq(chat.id, id));
-    if (!selectedChat) {
-      return null;
-    }
-
-    return selectedChat;
+    return await databaseService.getChatById(id);
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to get chat by id");
   }
@@ -214,7 +190,7 @@ export async function getChatById({ id }: { id: string }) {
 
 export async function saveMessages({ messages }: { messages: DBMessage[] }) {
   try {
-    return await db.insert(message).values(messages);
+    await databaseService.saveMessages(messages);
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to save messages");
   }
@@ -222,11 +198,7 @@ export async function saveMessages({ messages }: { messages: DBMessage[] }) {
 
 export async function getMessagesByChatId({ id }: { id: string }) {
   try {
-    return await db
-      .select()
-      .from(message)
-      .where(eq(message.chatId, id))
-      .orderBy(asc(message.createdAt));
+    return await databaseService.getMessagesByChatId(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -245,21 +217,10 @@ export async function voteMessage({
   type: "up" | "down";
 }) {
   try {
-    const [existingVote] = await db
-      .select()
-      .from(vote)
-      .where(and(eq(vote.messageId, messageId)));
-
-    if (existingVote) {
-      return await db
-        .update(vote)
-        .set({ isUpvoted: type === "up" })
-        .where(and(eq(vote.messageId, messageId), eq(vote.chatId, chatId)));
-    }
-    return await db.insert(vote).values({
+    await databaseService.voteMessage({
       chatId,
       messageId,
-      isUpvoted: type === "up",
+      isUpvoted: type === "up"
     });
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to vote message");
@@ -268,7 +229,7 @@ export async function voteMessage({
 
 export async function getVotesByChatId({ id }: { id: string }) {
   try {
-    return await db.select().from(vote).where(eq(vote.chatId, id));
+    return await databaseService.getVotesByChatId(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -291,17 +252,14 @@ export async function saveDocument({
   userId: string;
 }) {
   try {
-    return await db
-      .insert(document)
-      .values({
-        id,
-        title,
-        kind,
-        content,
-        userId,
-        createdAt: new Date(),
-      })
-      .returning();
+    return await databaseService.saveDocument({
+      id,
+      title,
+      content,
+      kind,
+      userId,
+      createdAt: new Date()
+    });
   } catch (_error) {
     throw new ChatSDKError("bad_request:database", "Failed to save document");
   }
@@ -309,13 +267,7 @@ export async function saveDocument({
 
 export async function getDocumentsById({ id }: { id: string }) {
   try {
-    const documents = await db
-      .select()
-      .from(document)
-      .where(eq(document.id, id))
-      .orderBy(asc(document.createdAt));
-
-    return documents;
+    return await databaseService.getDocumentsById(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -326,13 +278,7 @@ export async function getDocumentsById({ id }: { id: string }) {
 
 export async function getDocumentById({ id }: { id: string }) {
   try {
-    const [selectedDocument] = await db
-      .select()
-      .from(document)
-      .where(eq(document.id, id))
-      .orderBy(desc(document.createdAt));
-
-    return selectedDocument;
+    return await databaseService.getDocumentById(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -349,19 +295,7 @@ export async function deleteDocumentsByIdAfterTimestamp({
   timestamp: Date;
 }) {
   try {
-    await db
-      .delete(suggestion)
-      .where(
-        and(
-          eq(suggestion.documentId, id),
-          gt(suggestion.documentCreatedAt, timestamp)
-        )
-      );
-
-    return await db
-      .delete(document)
-      .where(and(eq(document.id, id), gt(document.createdAt, timestamp)))
-      .returning();
+    return await databaseService.deleteDocumentsByIdAfterTimestamp(id, timestamp);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -376,7 +310,7 @@ export async function saveSuggestions({
   suggestions: Suggestion[];
 }) {
   try {
-    return await db.insert(suggestion).values(suggestions);
+    await databaseService.saveSuggestions(suggestions);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -391,10 +325,7 @@ export async function getSuggestionsByDocumentId({
   documentId: string;
 }) {
   try {
-    return await db
-      .select()
-      .from(suggestion)
-      .where(and(eq(suggestion.documentId, documentId)));
+    return await databaseService.getSuggestionsByDocumentId(documentId);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -405,7 +336,7 @@ export async function getSuggestionsByDocumentId({
 
 export async function getMessageById({ id }: { id: string }) {
   try {
-    return await db.select().from(message).where(eq(message.id, id));
+    return await databaseService.getMessageById(id);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -422,30 +353,7 @@ export async function deleteMessagesByChatIdAfterTimestamp({
   timestamp: Date;
 }) {
   try {
-    const messagesToDelete = await db
-      .select({ id: message.id })
-      .from(message)
-      .where(
-        and(eq(message.chatId, chatId), gte(message.createdAt, timestamp))
-      );
-
-    const messageIds = messagesToDelete.map(
-      (currentMessage) => currentMessage.id
-    );
-
-    if (messageIds.length > 0) {
-      await db
-        .delete(vote)
-        .where(
-          and(eq(vote.chatId, chatId), inArray(vote.messageId, messageIds))
-        );
-
-      return await db
-        .delete(message)
-        .where(
-          and(eq(message.chatId, chatId), inArray(message.id, messageIds))
-        );
-    }
+    await databaseService.deleteMessagesByChatIdAfterTimestamp(chatId, timestamp);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -462,7 +370,7 @@ export async function updateChatVisiblityById({
   visibility: "private" | "public";
 }) {
   try {
-    return await db.update(chat).set({ visibility }).where(eq(chat.id, chatId));
+    await databaseService.updateChatVisibility(chatId, visibility);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -480,10 +388,7 @@ export async function updateChatLastContextById({
   context: AppUsage;
 }) {
   try {
-    return await db
-      .update(chat)
-      .set({ lastContext: context })
-      .where(eq(chat.id, chatId));
+    await databaseService.updateChatLastContext(chatId, context);
   } catch (error) {
     console.warn("Failed to update lastContext for chat", chatId, error);
     return;
@@ -498,24 +403,7 @@ export async function getMessageCountByUserId({
   differenceInHours: number;
 }) {
   try {
-    const twentyFourHoursAgo = new Date(
-      Date.now() - differenceInHours * 60 * 60 * 1000
-    );
-
-    const [stats] = await db
-      .select({ count: count(message.id) })
-      .from(message)
-      .innerJoin(chat, eq(message.chatId, chat.id))
-      .where(
-        and(
-          eq(chat.userId, id),
-          gte(message.createdAt, twentyFourHoursAgo),
-          eq(message.role, "user")
-        )
-      )
-      .execute();
-
-    return stats?.count ?? 0;
+    return await databaseService.getMessageCountByUserId(id, differenceInHours);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -532,9 +420,7 @@ export async function createStreamId({
   chatId: string;
 }) {
   try {
-    await db
-      .insert(stream)
-      .values({ id: streamId, chatId, createdAt: new Date() });
+    await databaseService.createStreamId(streamId, chatId);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
@@ -545,18 +431,50 @@ export async function createStreamId({
 
 export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
   try {
-    const streamIds = await db
-      .select({ id: stream.id })
-      .from(stream)
-      .where(eq(stream.chatId, chatId))
-      .orderBy(asc(stream.createdAt))
-      .execute();
-
-    return streamIds.map(({ id }) => id);
+    return await databaseService.getStreamIdsByChatId(chatId);
   } catch (_error) {
     throw new ChatSDKError(
       "bad_request:database",
       "Failed to get stream ids by chat id"
     );
+  }
+}
+
+// Test function to verify database operations
+export async function testDatabaseOperations(userId: string) {
+  try {
+    console.log('=== TESTING DATABASE OPERATIONS ===');
+
+    // Initialize database service if not already initialized
+    try {
+      const { databaseService, DatabaseConfigLoader } = await import("./database-factory");
+      const config = DatabaseConfigLoader.loadFromEnvironment();
+      await databaseService.initialize(config);
+      console.log('Database service initialized for test');
+    } catch (initError) {
+      console.log('Database service initialization:', initError);
+    }
+
+    // Test if we can access the database service
+    const healthCheck = await databaseService.healthCheck();
+    if (healthCheck.status !== 'healthy') {
+      console.log('Health check failed:', healthCheck);
+      throw new Error(`Database not healthy: ${healthCheck.details.error}`);
+    }
+
+    // Call the test function on the Supabase adapter
+    const adapter = (databaseService as any).getAdapter();
+    if (adapter && typeof adapter.testChatInsert === 'function') {
+      const result = await adapter.testChatInsert(userId);
+      console.log('Test result:', result);
+      return result;
+    } else {
+      console.log('Adapter:', adapter);
+      console.log('Available methods:', adapter ? Object.getOwnPropertyNames(adapter) : 'No adapter');
+      throw new Error('Test function not available on adapter');
+    }
+  } catch (error) {
+    console.error('Database test failed:', error);
+    throw new ChatSDKError("bad_request:database", "Database test failed");
   }
 }

@@ -1,6 +1,7 @@
 import type { InferSelectModel } from "drizzle-orm";
 import {
   boolean,
+  date,
   foreignKey,
   json,
   jsonb,
@@ -171,3 +172,22 @@ export const stream = pgTable(
 );
 
 export type Stream = InferSelectModel<typeof stream>;
+
+export const client = pgTable("Client", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  client_name: varchar("client_name", { length: 255 }).notNull(),
+  date_intake: date("date_intake"),
+  date_of_birth: date("date_of_birth"),
+  address: text("address"),
+  phone: varchar("phone", { length: 50 }),
+  email: varchar("email", { length: 255 }),
+  contact_1: varchar("contact_1", { length: 255 }),
+  relationship_1: varchar("relationship_1", { length: 255 }),
+  contact_2: varchar("contact_2", { length: 255 }),
+  relationship_2: varchar("relationship_2", { length: 255 }),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").notNull(),
+  updatedAt: timestamp("updatedAt").notNull(),
+});
+
+export type Client = InferSelectModel<typeof client>;
