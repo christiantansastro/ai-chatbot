@@ -1,6 +1,6 @@
 "use client";
 
-import type { Session } from "next-auth";
+import type { Session, User } from "next-auth";
 import { startTransition, useMemo, useOptimistic, useState } from "react";
 import { saveChatModelAsCookie } from "@/app/(chat)/actions";
 import { Button } from "@/components/ui/button";
@@ -14,13 +14,19 @@ import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import { chatModels } from "@/lib/ai/models";
 import { cn } from "@/lib/utils";
 import { CheckCircleFillIcon, ChevronDownIcon } from "./icons";
+import type { UserType } from "@/app/(auth)/auth";
+
+// Extended user type that includes the custom type property
+type ExtendedUser = User & {
+  type: UserType;
+};
 
 export function ModelSelector({
   session,
   selectedModelId,
   className,
 }: {
-  session: Session;
+  session: Session & { user: ExtendedUser };
   selectedModelId: string;
 } & React.ComponentProps<typeof Button>) {
   const [open, setOpen] = useState(false);
