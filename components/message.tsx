@@ -233,40 +233,6 @@ const PurePreviewMessage = ({
                 </div>
               );
             }
-
-            if (type === "tool-requestSuggestions") {
-              const { toolCallId, state } = part;
-
-              return (
-                <Tool defaultOpen={true} key={toolCallId}>
-                  <ToolHeader state={state} type="tool-requestSuggestions" />
-                  <ToolContent>
-                    {state === "input-available" && (
-                      <ToolInput input={part.input} />
-                    )}
-                    {state === "output-available" && (
-                      <ToolOutput
-                        errorText={undefined}
-                        output={
-                          "error" in part.output ? (
-                            <div className="rounded border p-2 text-red-500">
-                              Error: {String(part.output.error)}
-                            </div>
-                          ) : (
-                            <DocumentToolResult
-                              isReadonly={isReadonly}
-                              result={part.output}
-                              type="request-suggestions"
-                            />
-                          )
-                        }
-                      />
-                    )}
-                  </ToolContent>
-                </Tool>
-              );
-            }
-
             return null;
           })}
 
