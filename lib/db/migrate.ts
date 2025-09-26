@@ -8,6 +8,14 @@ config({
 });
 
 const runMigrate = async () => {
+  const databaseType = (process.env.DATABASE_TYPE as 'postgresql' | 'supabase') || 'supabase';
+
+  if (databaseType === 'supabase') {
+    console.log("ℹ️  Skipping migrations for Supabase deployment");
+    console.log("✅ Database schema should be managed directly in Supabase dashboard");
+    process.exit(0);
+  }
+
   if (!process.env.POSTGRES_URL) {
     throw new Error("POSTGRES_URL is not defined");
   }
