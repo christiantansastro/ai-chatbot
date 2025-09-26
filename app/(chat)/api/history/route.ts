@@ -19,12 +19,12 @@ export async function GET(request: NextRequest) {
 
   const session = await auth();
 
-  if (!session?.user) {
+  if (!session?.user?.id) {
     return new ChatSDKError("unauthorized:chat").toResponse();
   }
 
   const chats = await getChatsByUserId({
-    id: session.user.id,
+    id: session.user.id!,
     limit,
     startingAfter,
     endingBefore,
