@@ -113,9 +113,9 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
   }
 
   // Chat operations
-  async saveChat(chatData: ChatData): Promise<void> {
+  async saveChat(chatData: ChatData): Promise<ChatData> {
     try {
-      await this.db
+      const result = await this.db
         .insert(chat)
         .values({
           id: chatData.id,
@@ -125,7 +125,18 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
           lastContext: chatData.lastContext,
           createdAt: chatData.createdAt,
           updatedAt: chatData.updatedAt
-        });
+        })
+        .returning();
+
+      return {
+        id: result[0].id,
+        userId: result[0].userId,
+        title: result[0].title,
+        visibility: result[0].visibility,
+        lastContext: result[0].lastContext,
+        createdAt: result[0].createdAt,
+        updatedAt: result[0].updatedAt
+      };
     } catch (error) {
       throw new DatabaseError('Failed to save chat', error);
     }
