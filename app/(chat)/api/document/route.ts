@@ -52,8 +52,8 @@ export async function POST(request: Request) {
 
   const session = await auth();
 
-  if (!session?.user) {
-    return new ChatSDKError("not_found:document").toResponse();
+  if (!session?.user?.id) {
+    return new ChatSDKError("unauthorized:document").toResponse();
   }
 
   const {
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     content,
     title,
     kind,
-    userId: session.user.id,
+    userId: session.user.id!,
   });
 
   return Response.json(document, { status: 200 });
