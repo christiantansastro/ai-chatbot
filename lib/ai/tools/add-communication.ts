@@ -8,14 +8,8 @@ interface CommunicationResult {
   client_name: string;
   communication_date: string;
   communication_type: string;
-  direction: string;
-  priority: string;
   subject?: string;
   notes: string;
-  follow_up_required: boolean;
-  follow_up_date?: string;
-  outcome?: string;
-  next_action?: string;
 }
 
 export const addCommunication = tool({
@@ -23,18 +17,10 @@ export const addCommunication = tool({
   inputSchema: z.object({
     clientName: z.string().describe("Name of the client for this communication"),
     communicationType: z.enum(['phone_call', 'email', 'meeting', 'sms', 'letter', 'court_hearing', 'other']).describe("Type of communication"),
-    direction: z.enum(['inbound', 'outbound']).describe("Whether this is an incoming or outgoing communication"),
-    priority: z.enum(['low', 'medium', 'high', 'urgent']).optional().default('medium').describe("Priority level of this communication"),
     subject: z.string().optional().describe("Brief subject or title for the communication"),
     notes: z.string().describe("Detailed notes about the communication content"),
-    followUpRequired: z.boolean().optional().default(false).describe("Whether this communication requires follow-up"),
-    followUpDate: z.string().optional().describe("Date for follow-up (YYYY-MM-DD format) - required if followUpRequired is true"),
-    followUpNotes: z.string().optional().describe("Notes about what needs to be followed up"),
     relatedCaseNumber: z.string().optional().describe("Case or reference number if this relates to a specific case"),
     courtDate: z.string().optional().describe("Court hearing date if applicable (YYYY-MM-DD format)"),
-    durationMinutes: z.number().optional().describe("Duration of the communication in minutes (for meetings/calls)"),
-    outcome: z.string().optional().describe("Result or outcome of the communication"),
-    nextAction: z.string().optional().describe("What needs to happen next as a result of this communication"),
   }),
   execute: async (commData): Promise<{
     success: boolean;
@@ -62,14 +48,7 @@ export const addCommunication = tool({
       // Create Supabase client
       const supabase = createSupabaseClient(supabaseUrl, supabaseKey);
 
-      // Validate follow-up requirements
-      if (commData.followUpRequired && !commData.followUpDate) {
-        return {
-          success: false,
-          message: 'Follow-up date is required when follow_up_required is true.',
-          communication: null
-        };
-      }
+      // No follow-up validation needed since we removed follow-up fields
 
       // Find the client by name
       console.log('📞 COMMUNICATION ADD TOOL: Finding client...');
@@ -112,20 +91,13 @@ export const addCommunication = tool({
 
       // Prepare communication data
       const communication: any = {
+        client_name: commData.clientName,
         communication_date: new Date().toISOString().split('T')[0], // Today's date
         communication_type: commData.communicationType,
-        direction: commData.direction,
-        priority: commData.priority,
         subject: commData.subject || null,
         notes: commData.notes,
-        follow_up_required: commData.followUpRequired,
-        follow_up_date: commData.followUpDate || null,
-        follow_up_notes: commData.followUpNotes || null,
         related_case_number: commData.relatedCaseNumber || null,
         court_date: commData.courtDate || null,
-        duration_minutes: commData.durationMinutes || null,
-        outcome: commData.outcome || null,
-        next_action: commData.nextAction || null,
       };
 
       // Add client reference based on what's available
@@ -163,18 +135,12 @@ export const addCommunication = tool({
         client_name: client.client_name,
         communication_date: insertedCommunication.communication_date,
         communication_type: insertedCommunication.communication_type,
-        direction: insertedCommunication.direction,
-        priority: insertedCommunication.priority,
         subject: insertedCommunication.subject || undefined,
         notes: insertedCommunication.notes,
-        follow_up_required: insertedCommunication.follow_up_required,
-        follow_up_date: insertedCommunication.follow_up_date || undefined,
-        outcome: insertedCommunication.outcome || undefined,
-        next_action: insertedCommunication.next_action || undefined,
       };
 
       // Format success message based on communication type and details
-      let message = `Successfully recorded ${commData.direction} ${commData.communicationType.replace('_', ' ')}`;
+      let message = `Successfully recorded ${commData.communicationType.replace('_', ' ')}`;
 
       if (commData.subject) {
         message += ` about "${commData.subject}"`;
@@ -182,16 +148,12 @@ export const addCommunication = tool({
 
       message += ` for ${client.client_name}.`;
 
-      if (commData.followUpRequired) {
-        message += ` Follow-up scheduled for ${commData.followUpDate}.`;
+      if (commData.relatedCaseNumber) {
+        message += ` Case: ${commData.relatedCaseNumber}.`;
       }
 
-      if (commData.outcome) {
-        message += ` Outcome: ${commData.outcome}.`;
-      }
-
-      if (commData.nextAction) {
-        message += ` Next action: ${commData.nextAction}.`;
+      if (commData.courtDate) {
+        message += ` Court date: ${commData.courtDate}.`;
       }
 
       return {

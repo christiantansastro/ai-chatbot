@@ -8,14 +8,8 @@ interface CommunicationRecord {
   client_name: string;
   communication_date: string;
   communication_type: string;
-  direction: string;
-  priority: string;
   subject?: string;
   notes: string;
-  follow_up_required: boolean;
-  follow_up_date?: string;
-  outcome?: string;
-  next_action?: string;
 }
 
 export const queryCommunications = tool({
@@ -23,9 +17,6 @@ export const queryCommunications = tool({
   inputSchema: z.object({
     clientName: z.string().optional().describe("Name of the client to get communications for (optional - if not provided, returns all)"),
     communicationType: z.enum(['all', 'phone_call', 'email', 'meeting', 'sms', 'letter', 'court_hearing', 'other']).optional().default('all').describe("Filter by communication type"),
-    direction: z.enum(['all', 'inbound', 'outbound']).optional().default('all').describe("Filter by communication direction"),
-    priority: z.enum(['all', 'low', 'medium', 'high', 'urgent']).optional().default('all').describe("Filter by priority level"),
-    followUpOnly: z.boolean().optional().default(false).describe("Show only communications that require follow-up"),
     dateFrom: z.string().optional().describe("Start date for communication records (YYYY-MM-DD format)"),
     dateTo: z.string().optional().describe("End date for communication records (YYYY-MM-DD format)"),
     limit: z.number().optional().default(20).describe("Maximum number of records to return"),
@@ -33,9 +24,6 @@ export const queryCommunications = tool({
   execute: async ({
     clientName,
     communicationType = 'all',
-    direction = 'all',
-    priority = 'all',
-    followUpOnly = false,
     dateFrom,
     dateTo,
     limit = 20
@@ -52,7 +40,7 @@ export const queryCommunications = tool({
   }> => {
     try {
       console.log('📞 COMMUNICATIONS QUERY TOOL: Searching communications:', {
-        clientName, communicationType, direction, priority, followUpOnly, dateFrom, dateTo, limit
+        clientName, communicationType, dateFrom, dateTo, limit
       });
 
       // Validate environment variables
@@ -94,17 +82,7 @@ export const queryCommunications = tool({
         query = query.eq('communication_type', communicationType);
       }
 
-      if (direction !== 'all') {
-        query = query.eq('direction', direction);
-      }
-
-      if (priority !== 'all') {
-        query = query.eq('priority', priority);
-      }
-
-      if (followUpOnly) {
-        query = query.eq('follow_up_required', true);
-      }
+      // No additional filters needed for removed fields
 
       if (dateFrom) {
         query = query.gte('communication_date', dateFrom);
@@ -136,17 +114,7 @@ export const queryCommunications = tool({
           fallbackQuery = fallbackQuery.eq('communication_type', communicationType);
         }
 
-        if (direction !== 'all') {
-          fallbackQuery = fallbackQuery.eq('direction', direction);
-        }
-
-        if (priority !== 'all') {
-          fallbackQuery = fallbackQuery.eq('priority', priority);
-        }
-
-        if (followUpOnly) {
-          fallbackQuery = fallbackQuery.eq('follow_up_required', true);
-        }
+        // No additional filters needed for removed fields
 
         if (dateFrom) {
           fallbackQuery = fallbackQuery.gte('communication_date', dateFrom);
@@ -185,21 +153,15 @@ export const queryCommunications = tool({
         client_name: record.clients?.client_name || record.client_name || 'Unknown Client',
         communication_date: record.communication_date,
         communication_type: record.communication_type,
-        direction: record.direction,
-        priority: record.priority,
         subject: record.subject || undefined,
         notes: record.notes,
-        follow_up_required: record.follow_up_required,
-        follow_up_date: record.follow_up_date || undefined,
-        outcome: record.outcome || undefined,
-        next_action: record.next_action || undefined,
       }));
 
       // Calculate summary statistics
       const summary = {
         total_found: formattedCommunications.length,
-        follow_ups_pending: formattedCommunications.filter(c => c.follow_up_required).length,
-        high_priority_count: formattedCommunications.filter(c => ['high', 'urgent'].includes(c.priority)).length,
+        follow_ups_pending: 0, // No longer available since follow_up_required column was removed
+        high_priority_count: 0, // No longer available since priority column was removed
         by_type: formattedCommunications.reduce((acc, comm) => {
           acc[comm.communication_type] = (acc[comm.communication_type] || 0) + 1;
           return acc;
@@ -217,23 +179,9 @@ export const queryCommunications = tool({
         message += ` of type "${communicationType}"`;
       }
 
-      if (direction !== 'all') {
-        message += ` (${direction})`;
-      }
-
-      if (followUpOnly) {
-        message += ` requiring follow-up`;
-      }
-
       message += '.';
 
-      if (summary.follow_ups_pending > 0) {
-        message += ` ${summary.follow_ups_pending} require${summary.follow_ups_pending === 1 ? 's' : ''} follow-up.`;
-      }
-
-      if (summary.high_priority_count > 0) {
-        message += ` ${summary.high_priority_count} ${summary.high_priority_count === 1 ? 'is' : 'are'} high priority.`;
-      }
+      // Note: Follow-up and priority information no longer available since those columns were removed
 
       return {
         success: true,
