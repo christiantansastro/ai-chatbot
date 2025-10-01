@@ -16,6 +16,8 @@ import { codeArtifact } from "@/artifacts/code/client";
 import { imageArtifact } from "@/artifacts/image/client";
 import { sheetArtifact } from "@/artifacts/sheet/client";
 import { textArtifact } from "@/artifacts/text/client";
+import { financialStatementArtifact } from "@/artifacts/financial-statement/client";
+import { clientReportArtifact } from "@/artifacts/client-report/client";
 import { useArtifact } from "@/hooks/use-artifact";
 import type { Document, Vote } from "@/lib/db/schema";
 import type { Attachment, ChatMessage } from "@/lib/types";
@@ -34,6 +36,8 @@ export const artifactDefinitions = [
   codeArtifact,
   imageArtifact,
   sheetArtifact,
+  financialStatementArtifact,
+  clientReportArtifact,
 ];
 export type ArtifactKind = (typeof artifactDefinitions)[number]["kind"];
 
@@ -87,6 +91,16 @@ function PureArtifact({
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
 
+  // Debug artifact state
+  console.log('🔍 ARTIFACT DEBUG: Current artifact state:', {
+    isVisible: artifact.isVisible,
+    documentId: artifact.documentId,
+    kind: artifact.kind,
+    title: artifact.title,
+    status: artifact.status,
+    contentLength: artifact.content?.length || 0
+  });
+
   const {
     data: documents,
     isLoading: isDocumentsFetching,
@@ -109,12 +123,29 @@ function PureArtifact({
       const mostRecentDocument = documents.at(-1);
 
       if (mostRecentDocument) {
+        console.log('📄 ARTIFACT: Loading document', {
+          id: mostRecentDocument.id,
+          title: mostRecentDocument.title,
+          kind: mostRecentDocument.kind,
+          contentLength: mostRecentDocument.content?.length || 0
+        });
+
         setDocument(mostRecentDocument);
         setCurrentVersionIndex(documents.length - 1);
-        setArtifact((currentArtifact) => ({
-          ...currentArtifact,
-          content: mostRecentDocument.content ?? "",
-        }));
+
+        // Don't override content for financial statements since they have rich HTML content
+        setArtifact((currentArtifact) => {
+          if (currentArtifact.kind === "financial-statement") {
+            // Keep the streamed content for financial statements
+            return currentArtifact;
+          } else {
+            // Override content for other artifact types
+            return {
+              ...currentArtifact,
+              content: mostRecentDocument.content ?? "",
+            };
+          }
+        });
       }
     }
   }, [documents, setArtifact]);

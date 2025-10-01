@@ -1,8 +1,5 @@
--- Optimized Financial Records Table for Supabase
--- Run this in your Supabase SQL Editor
-
--- Enable required extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- Financial Records Table for Supabase
+-- Run this in your Supabase SQL Editor to add financial statement support
 
 -- Create enum type for transaction types
 DO $$ BEGIN
@@ -11,40 +8,11 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- First, ensure the clients table exists (if not, create a minimal version)
--- Check if clients table exists
-DO $$
-BEGIN
-    -- Try to create clients table if it doesn't exist
-    CREATE TABLE IF NOT EXISTS clients (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        client_name TEXT NOT NULL,
-        date_intake DATE,
-        date_of_birth DATE,
-        address TEXT,
-        phone TEXT,
-        email TEXT,
-        contact_1 TEXT,
-        relationship_1 TEXT,
-        contact_2 TEXT,
-        relationship_2 TEXT,
-        notes TEXT,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-EXCEPTION
-    WHEN duplicate_object THEN
-        -- Table already exists, do nothing
-        RAISE NOTICE 'Clients table already exists';
-END $$;
-
--- Drop existing table if it exists (backup your data first!)
-DROP TABLE IF EXISTS financials CASCADE;
-
--- Create the optimized financials table
-CREATE TABLE financials (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  client_id UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+-- Create the financials table
+CREATE TABLE IF NOT EXISTS financials (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id UUID REFERENCES clients(id) ON DELETE CASCADE,
+  client_name TEXT, -- For standalone usage
   case_number VARCHAR(50),
   transaction_type transaction_type_enum NOT NULL,
   amount DECIMAL(12,2) NOT NULL CHECK (amount > 0),
@@ -63,8 +31,8 @@ CREATE INDEX IF NOT EXISTS idx_financials_case ON financials(case_number);
 CREATE INDEX IF NOT EXISTS idx_financials_client_balance ON financials(client_id)
 WHERE transaction_type IN ('quote', 'payment', 'adjustment');
 
--- Create function to get client balance
-CREATE OR REPLACE FUNCTION get_client_balance(client_uuid UUID)
+-- Create function to get client balance (supports both client_id and client_name)
+CREATE OR REPLACE FUNCTION get_client_balance(client_uuid UUID DEFAULT NULL, client_name_param TEXT DEFAULT NULL)
 RETURNS TABLE (
   total_quoted DECIMAL(12,2),
   total_paid DECIMAL(12,2),
@@ -74,18 +42,20 @@ RETURNS TABLE (
 BEGIN
   RETURN QUERY
   SELECT
-    COALESCE(SUM(CASE WHEN transaction_type = 'quote' THEN amount ELSE 0 END), 0) as total_quoted,
-    COALESCE(SUM(CASE WHEN transaction_type IN ('payment', 'adjustment') THEN amount ELSE 0 END), 0) as total_paid,
-    COALESCE(SUM(CASE WHEN transaction_type = 'quote' THEN amount ELSE -amount END), 0) as balance,
+    COALESCE(SUM(CASE WHEN f.transaction_type = 'quote' THEN f.amount ELSE 0 END), 0) as total_quoted,
+    COALESCE(SUM(CASE WHEN f.transaction_type IN ('payment', 'adjustment') THEN f.amount ELSE 0 END), 0) as total_paid,
+    COALESCE(SUM(CASE WHEN f.transaction_type = 'quote' THEN f.amount ELSE -f.amount END), 0) as balance,
     COUNT(*) as transaction_count
-  FROM financials
-  WHERE client_id = client_uuid;
+  FROM financials f
+  WHERE (client_uuid IS NOT NULL AND f.client_id = client_uuid)
+     OR (client_name_param IS NOT NULL AND f.client_name = client_name_param);
 END;
 $$ LANGUAGE plpgsql;
 
--- Create function to get recent transactions
+-- Create function to get recent transactions (supports both client_id and client_name)
 CREATE OR REPLACE FUNCTION get_client_recent_transactions(
-  client_uuid UUID,
+  client_uuid UUID DEFAULT NULL,
+  client_name_param TEXT DEFAULT NULL,
   limit_count INTEGER DEFAULT 10
 )
 RETURNS TABLE (
@@ -108,7 +78,8 @@ BEGIN
     f.service_description,
     f.notes
   FROM financials f
-  WHERE f.client_id = client_uuid
+  WHERE (client_uuid IS NOT NULL AND f.client_id = client_uuid)
+     OR (client_name_param IS NOT NULL AND f.client_name = client_name_param)
   ORDER BY f.transaction_date DESC, f.created_at DESC
   LIMIT limit_count;
 END;
@@ -157,7 +128,7 @@ $$ LANGUAGE plpgsql;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'John Smith',
+  c.client_name,
   'CASE-001',
   'quote'::transaction_type_enum,
   1500.00,
@@ -172,7 +143,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'John Smith',
+  c.client_name,
   'CASE-001',
   'payment'::transaction_type_enum,
   600.00,
@@ -188,7 +159,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Sarah Johnson',
+  c.client_name,
   'CASE-002',
   'quote'::transaction_type_enum,
   2500.00,
@@ -203,7 +174,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Sarah Johnson',
+  c.client_name,
   'CASE-002',
   'payment'::transaction_type_enum,
   2500.00,
@@ -219,7 +190,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Michael Brown',
+  c.client_name,
   'CASE-003',
   'quote'::transaction_type_enum,
   800.00,
@@ -234,7 +205,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Michael Brown',
+  c.client_name,
   'CASE-003',
   'payment'::transaction_type_enum,
   1000.00,
@@ -250,7 +221,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Emily Davis',
+  c.client_name,
   'CASE-004',
   'quote'::transaction_type_enum,
   3200.00,
@@ -265,7 +236,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Emily Davis',
+  c.client_name,
   'CASE-004',
   'payment'::transaction_type_enum,
   1200.00,
@@ -280,7 +251,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Emily Davis',
+  c.client_name,
   'CASE-004',
   'payment'::transaction_type_enum,
   1200.00,
@@ -296,7 +267,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Robert Wilson',
+  c.client_name,
   'CASE-005',
   'quote'::transaction_type_enum,
   950.00,
@@ -311,7 +282,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Robert Wilson',
+  c.client_name,
   'CASE-005',
   'adjustment'::transaction_type_enum,
   50.00,
@@ -326,7 +297,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Robert Wilson',
+  c.client_name,
   'CASE-005',
   'payment'::transaction_type_enum,
   500.00,
@@ -342,7 +313,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Lisa Anderson',
+  c.client_name,
   'CASE-006',
   'quote'::transaction_type_enum,
   1800.00,
@@ -357,7 +328,7 @@ ON CONFLICT DO NOTHING;
 INSERT INTO financials (client_id, client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
 SELECT
   c.id,
-  'Lisa Anderson',
+  c.client_name,
   'CASE-006',
   'payment'::transaction_type_enum,
   900.00,
@@ -369,24 +340,28 @@ FROM clients c
 WHERE c.client_name = 'Lisa Anderson'
 ON CONFLICT DO NOTHING;
 
--- Standalone version sample data (if foreign keys fail)
--- These will work even without the clients table
-INSERT INTO financials (client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
-SELECT 'Standalone Client A', 'STANDALONE-001', 'quote'::transaction_type_enum, 750.00, NULL, '2025-09-01'::date, 'Sample service', 'Standalone test record'
-WHERE NOT EXISTS (SELECT 1 FROM financials WHERE client_name = 'Standalone Client A')
-ON CONFLICT DO NOTHING;
+-- Standalone version sample data (for when clients table doesn't exist)
+-- INSERT INTO financials (client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
+-- SELECT 'Standalone Client A', 'STANDALONE-001', 'quote'::transaction_type_enum, 750.00, NULL, '2025-09-01'::date, 'Sample service', 'Standalone test record'
+-- WHERE NOT EXISTS (SELECT 1 FROM financials WHERE client_name = 'Standalone Client A')
+-- ON CONFLICT DO NOTHING;
 
-INSERT INTO financials (client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
-SELECT 'Standalone Client A', 'STANDALONE-001', 'payment'::transaction_type_enum, 375.00, 'Cash', '2025-09-15'::date, 'Partial payment', 'Standalone test payment'
-WHERE NOT EXISTS (SELECT 1 FROM financials WHERE client_name = 'Standalone Client A' AND transaction_type = 'payment')
-ON CONFLICT DO NOTHING;
+-- INSERT INTO financials (client_name, case_number, transaction_type, amount, payment_method, transaction_date, service_description, notes)
+-- SELECT 'Standalone Client A', 'STANDALONE-001', 'payment'::transaction_type_enum, 375.00, 'Cash', '2025-09-15'::date, 'Partial payment', 'Standalone test payment'
+-- WHERE NOT EXISTS (SELECT 1 FROM financials WHERE client_name = 'Standalone Client A' AND transaction_type = 'payment')
+-- ON CONFLICT DO NOTHING;
 
 -- Grant necessary permissions
 GRANT ALL ON financials TO authenticated;
 GRANT ALL ON financials TO service_role;
-GRANT EXECUTE ON FUNCTION get_client_balance(UUID) TO authenticated;
-GRANT EXECUTE ON FUNCTION get_client_recent_transactions(UUID, INTEGER) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_client_balance(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION get_client_recent_transactions(UUID, TEXT, INTEGER) TO authenticated;
 GRANT EXECUTE ON FUNCTION search_financials_by_client(TEXT, INTEGER) TO authenticated;
+
+-- Update documents table to allow financial-statement kind (for existing databases)
+ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_kind_check;
+ALTER TABLE documents ADD CONSTRAINT documents_kind_check
+    CHECK (kind IN ('text', 'code', 'image', 'sheet', 'financial-statement'));
 
 -- Alternative simplified version (if the above fails, try this instead):
 /*

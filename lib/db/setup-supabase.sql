@@ -64,6 +64,11 @@ CREATE TABLE IF NOT EXISTS documents (
     PRIMARY KEY (id, created_at)
 );
 
+-- Update the documents table to allow financial-statement kind (if it already exists)
+ALTER TABLE documents DROP CONSTRAINT IF EXISTS documents_kind_check;
+ALTER TABLE documents ADD CONSTRAINT documents_kind_check
+    CHECK (kind IN ('text', 'code', 'image', 'sheet', 'financial-statement'));
+
 -- Create suggestions table
 CREATE TABLE IF NOT EXISTS suggestions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -278,6 +283,22 @@ CREATE POLICY "Users can update clients" ON clients
 CREATE POLICY "Users can delete clients" ON clients
     FOR DELETE USING (auth.uid() IS NOT NULL);
 
+-- Enable RLS on financials table
+ALTER TABLE financials ENABLE ROW LEVEL SECURITY;
+
+-- Create RLS policies for financials table
+CREATE POLICY "Users can view all financial records" ON financials
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Users can insert financial records" ON financials
+    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Users can update financial records" ON financials
+    FOR UPDATE USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Users can delete financial records" ON financials
+    FOR DELETE USING (auth.uid() IS NOT NULL);
+
 -- Create a function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -302,6 +323,10 @@ CREATE TRIGGER update_chats_updated_at BEFORE UPDATE ON chats
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Create trigger for financials table
+CREATE TRIGGER update_financials_updated_at BEFORE UPDATE ON financials
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Create a function for precise client searching (requires pg_trgm extension)

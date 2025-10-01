@@ -97,6 +97,7 @@ export function Chat({
       },
     }),
     onData: (dataPart) => {
+      console.log('🔍 CHAT DEBUG: Received dataPart:', dataPart);
       setDataStream((ds) => (ds ? [...ds, dataPart] : []));
       if (dataPart.type === "data-usage") {
         setUsage(dataPart.data);
@@ -146,6 +147,16 @@ export function Chat({
 
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
+
+  // Debug artifact state
+  const artifactState = useArtifactSelector((state) => state);
+  console.log('🔍 CHAT DEBUG: Artifact state:', {
+    isVisible: artifactState.isVisible,
+    documentId: artifactState.documentId,
+    kind: artifactState.kind,
+    title: artifactState.title,
+    status: artifactState.status
+  });
 
   useAutoResume({
     autoResume,

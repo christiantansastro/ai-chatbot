@@ -78,7 +78,7 @@ const groupChatsByDate = (chats: Chat[]): GroupedChats => {
 
 export function getChatHistoryPaginationKey(
   pageIndex: number,
-  previousPageData: ChatHistory
+  previousPageData: ChatHistory | undefined
 ) {
   if (previousPageData && previousPageData.hasMore === false) {
     return null;
@@ -88,13 +88,17 @@ export function getChatHistoryPaginationKey(
     return `/api/history?limit=${PAGE_SIZE}`;
   }
 
-  const firstChatFromPage = previousPageData.chats.at(-1);
-
-  if (!firstChatFromPage) {
+  if (!previousPageData || !previousPageData.chats || previousPageData.chats.length === 0) {
     return null;
   }
 
-  return `/api/history?ending_before=${firstChatFromPage.id}&limit=${PAGE_SIZE}`;
+  const lastChatFromPage = previousPageData.chats[previousPageData.chats.length - 1];
+
+  if (!lastChatFromPage) {
+    return null;
+  }
+
+  return `/api/history?ending_before=${lastChatFromPage.id}&limit=${PAGE_SIZE}`;
 }
 
 export function SidebarHistory({ user }: { user: User | undefined }) {
@@ -109,6 +113,8 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
     mutate,
   } = useSWRInfinite<ChatHistory>(getChatHistoryPaginationKey, fetcher, {
     fallbackData: [],
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
   });
 
   const router = useRouter();
@@ -216,7 +222,12 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
                   (paginatedChatHistory) => paginatedChatHistory.chats
                 );
 
-                const groupedChats = groupChatsByDate(chatsFromHistory);
+                // Remove duplicates based on chat ID
+                const uniqueChats = chatsFromHistory.filter(
+                  (chat, index, self) => self.findIndex(c => c.id === chat.id) === index
+                );
+
+                const groupedChats = groupChatsByDate(uniqueChats);
 
                 return (
                   <div className="flex flex-col gap-6">

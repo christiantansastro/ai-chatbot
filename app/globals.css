@@ -315,3 +315,20 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Financial statement download button styles */
+.financial-statement-download {
+  @apply mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800;
+}
+
+.download-button {
+  @apply mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md transition-colors duration-200 cursor-pointer;
+}
+
+.download-button:hover {
+  @apply bg-blue-700 dark:bg-blue-500;
+}
+
+.download-button:active {
+  @apply bg-blue-800 dark:bg-blue-600;
+}

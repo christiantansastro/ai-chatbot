@@ -31,6 +31,8 @@ import { getFinancialHistory } from "@/lib/ai/tools/get-financial-history";
 import { queryCommunications } from "@/lib/ai/tools/query-communications";
 import { addCommunication } from "@/lib/ai/tools/add-communication";
 import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
+import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
+import { createClientReport } from "@/lib/ai/tools/create-client-report";
 import { isProductionEnvironment } from "@/lib/constants";
 import {
   createStreamId,
@@ -213,6 +215,8 @@ export async function POST(request: Request) {
                   "queryCommunications",
                   "addCommunication",
                   "getCommunicationSummary",
+                  "createFinancialStatement",
+                  "createClientReport",
                 ],
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
@@ -225,6 +229,8 @@ export async function POST(request: Request) {
             queryCommunications,
             addCommunication,
             getCommunicationSummary,
+            createFinancialStatement: createFinancialStatement({ session, dataStream }),
+            createClientReport: createClientReport({ session, dataStream }),
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,

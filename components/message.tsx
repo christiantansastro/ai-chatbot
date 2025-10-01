@@ -9,6 +9,8 @@ import { cn, sanitizeText } from "@/lib/utils";
 import { useDataStream } from "./data-stream-provider";
 import { DocumentToolResult } from "./document";
 import { DocumentPreview } from "./document-preview";
+import { FinancialStatementDownload } from "./financial-statement-download";
+import { ClientReportDownload } from "./client-report-download";
 import { MessageContent } from "./elements/message";
 import { Response } from "./elements/response";
 import {
@@ -233,9 +235,82 @@ const PurePreviewMessage = ({
                 </div>
               );
             }
-            return null;
-          })}
 
+            
+                        // Handle financial statement download components
+                        if (type === "tool-createFinancialStatement") {
+                          const { toolCallId, output } = part;
+
+                          // If there's an error, show it
+                          if (output && "error" in output) {
+                            return (
+                              <div
+                                className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
+                                key={toolCallId}
+                              >
+                                Error creating financial statement: {String(output.error)}
+                              </div>
+                            );
+                          }
+
+                          // Show the download button if we have the document info
+                          if (output && output.id && output.clientName) {
+                            return (
+                              <FinancialStatementDownload
+                                key={toolCallId}
+                                documentId={output.id}
+                                clientName={output.clientName}
+                                title={output.title || "Financial Statement"}
+                              />
+                            );
+                          }
+
+                          // Fallback - show a generic message
+                          return (
+                            <div className="financial-statement-download my-4 p-4 bg-muted rounded-lg">
+                              <p>Financial statement has been generated and is ready for download.</p>
+                            </div>
+                          );
+                        }
+
+                        // Handle client report download components
+                        if (type === "tool-createClientReport") {
+                          const { toolCallId, output } = part;
+
+                          // If there's an error, show it
+                          if (output && "error" in output) {
+                            return (
+                              <div
+                                className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-500 dark:bg-red-950/50"
+                                key={toolCallId}
+                              >
+                                Error creating client report: {String(output.error)}
+                              </div>
+                            );
+                          }
+
+                          // Show the download button if we have the document info
+                          if (output && output.id && output.clientName) {
+                            return (
+                              <ClientReportDownload
+                                key={toolCallId}
+                                documentId={output.id}
+                                clientName={output.clientName}
+                                title={output.title || "Client Report"}
+                              />
+                            );
+                          }
+
+                          // Fallback - show a generic message
+                          return (
+                            <div className="client-report-download my-4 p-4 bg-muted rounded-lg">
+                              <p>Client report has been generated and is ready for download.</p>
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      })}
           {!isReadonly && (
             <MessageActions
               chatId={chatId}

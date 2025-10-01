@@ -332,7 +332,13 @@ export class SupabaseAdapter implements DatabaseAdapter {
 
       if (error) throw error;
 
-      const chats = (data || []).map((chat: any) => ({
+      // Remove duplicates based on chat ID
+      const uniqueData = (data || []).filter(
+        (chat: any, index: number, self: any[]) =>
+          self.findIndex((c: any) => c.id === chat.id) === index
+      );
+
+      const chats = uniqueData.map((chat: any) => ({
         id: chat.id,
         userId: chat.user_id,
         title: chat.title,
@@ -597,6 +603,14 @@ export class SupabaseAdapter implements DatabaseAdapter {
   // Document operations
   async saveDocument(documentData: DocumentData): Promise<DocumentData> {
     try {
+      console.log('📄 SUPABASE ADAPTER: Saving document', {
+        id: documentData.id,
+        title: documentData.title,
+        kind: documentData.kind,
+        userId: documentData.userId,
+        contentLength: documentData.content?.length || 0
+      });
+
       // Use service role client to bypass RLS for document creation
       const client = this.serviceSupabase || this.supabase;
 
@@ -613,9 +627,19 @@ export class SupabaseAdapter implements DatabaseAdapter {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('📄 SUPABASE ADAPTER: Document insert error:', error);
+        console.error('📄 SUPABASE ADAPTER: Error code:', error.code);
+        console.error('📄 SUPABASE ADAPTER: Error message:', error.message);
+        console.error('📄 SUPABASE ADAPTER: Error details:', error.details);
+        console.error('📄 SUPABASE ADAPTER: Error hint:', error.hint);
+        throw error;
+      }
+
+      console.log('📄 SUPABASE ADAPTER: Document saved successfully');
       return data;
     } catch (error) {
+      console.error('📄 SUPABASE ADAPTER: Failed to save document:', error);
       throw new DatabaseError('Failed to save document', error);
     }
   }

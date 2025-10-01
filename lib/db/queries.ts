@@ -252,7 +252,8 @@ export async function saveDocument({
   userId: string;
 }) {
   try {
-    return await databaseService.saveDocument({
+    console.log('📄 DB QUERIES: Saving document', { id, title, kind, contentLength: content.length, userId });
+    const result = await databaseService.saveDocument({
       id,
       title,
       content,
@@ -260,7 +261,10 @@ export async function saveDocument({
       userId,
       createdAt: new Date()
     });
-  } catch (_error) {
+    console.log('📄 DB QUERIES: Document saved successfully');
+    return result;
+  } catch (error) {
+    console.error('📄 DB QUERIES: Failed to save document:', error);
     throw new ChatSDKError("bad_request:database", "Failed to save document");
   }
 }
