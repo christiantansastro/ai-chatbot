@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS financials (
   amount DECIMAL(12,2) NOT NULL CHECK (amount > 0),
   payment_method VARCHAR(50), -- Cash, Credit Card, Bank Transfer, etc.
   transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  payment_due_date DATE, -- Due date for payments
   service_description TEXT, -- What service was provided
   notes TEXT,
   created_at TIMESTAMP DEFAULT NOW(),

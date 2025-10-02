@@ -7,6 +7,7 @@ interface TransactionDetail {
   transaction_type: string;
   amount: number;
   transaction_date: string;
+  payment_due_date?: string;
   payment_method?: string;
   service_description?: string;
   notes?: string;
@@ -228,6 +229,7 @@ export const getFinancialHistory = tool({
               transaction_type: transaction.transaction_type,
               amount: Number(transaction.amount),
               transaction_date: transaction.transaction_date,
+              payment_due_date: transaction.payment_due_date || undefined,
               payment_method: transaction.payment_method || undefined,
               service_description: transaction.service_description || undefined,
               notes: transaction.notes || undefined,
@@ -245,6 +247,7 @@ export const getFinancialHistory = tool({
           transaction_type: transaction.transaction_type,
           amount: Number(transaction.amount),
           transaction_date: transaction.transaction_date,
+          payment_due_date: transaction.payment_due_date || undefined,
           payment_method: transaction.payment_method || undefined,
           service_description: transaction.service_description || undefined,
           notes: transaction.notes || undefined,

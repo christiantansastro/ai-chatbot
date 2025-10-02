@@ -10,6 +10,7 @@ interface TransactionResult {
   amount: number;
   payment_method?: string;
   transaction_date: string;
+  payment_due_date?: string;
   service_description?: string;
   notes?: string;
   new_balance: number;
@@ -26,6 +27,7 @@ export const addFinancialTransaction = tool({
     serviceDescription: z.string().optional().describe("Description of service provided (for quotes) or reason for transaction"),
     notes: z.string().optional().describe("Additional notes about this transaction"),
     transactionDate: z.string().optional().describe("Transaction date in YYYY-MM-DD format (defaults to today)"),
+    paymentDueDate: z.string().optional().describe("Payment due date in YYYY-MM-DD format (for quotes and adjustments)"),
   }),
   execute: async (transactionData): Promise<{
     success: boolean;
@@ -120,21 +122,20 @@ export const addFinancialTransaction = tool({
 
       // Prepare transaction data
       const transaction: any = {
+        client_name: client.client_name, // Always include client name
         case_number: transactionData.caseNumber || null,
         transaction_type: transactionData.transactionType,
         amount: transactionData.amount,
         payment_method: transactionData.paymentMethod || null,
         transaction_date: transactionData.transactionDate || new Date().toISOString().split('T')[0],
+        payment_due_date: transactionData.paymentDueDate || null,
         service_description: transactionData.serviceDescription || null,
         notes: transactionData.notes || null,
       };
 
-      // Add client reference based on what's available
+      // Add client reference if available
       if (client.id) {
         transaction.client_id = client.id;
-      } else {
-        // Use client name directly (standalone mode)
-        transaction.client_name = client.client_name;
       }
 
       console.log('💰 FINANCIAL TRANSACTION TOOL: Inserting transaction:', transaction);
@@ -177,6 +178,7 @@ export const addFinancialTransaction = tool({
         amount: Number(insertedTransaction.amount),
         payment_method: insertedTransaction.payment_method,
         transaction_date: insertedTransaction.transaction_date,
+        payment_due_date: insertedTransaction.payment_due_date,
         service_description: insertedTransaction.service_description,
         notes: insertedTransaction.notes,
         new_balance: balanceData ? Number(balanceData[0]?.balance || 0) : 0

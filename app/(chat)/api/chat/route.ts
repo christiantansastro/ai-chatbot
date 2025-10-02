@@ -25,11 +25,16 @@ import { myProvider } from "@/lib/ai/providers";
 import { queryClients } from "@/lib/ai/tools/query-clients";
 import { createClient } from "@/lib/ai/tools/create-client";
 import { updateClient } from "@/lib/ai/tools/update-client";
+import { deleteClient } from "@/lib/ai/tools/delete-client";
 import { queryFinancialBalance } from "@/lib/ai/tools/query-financial-balance";
 import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
+import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
+import { deleteFinancialTransaction } from "@/lib/ai/tools/delete-financial-transaction";
 import { getFinancialHistory } from "@/lib/ai/tools/get-financial-history";
 import { queryCommunications } from "@/lib/ai/tools/query-communications";
 import { addCommunication } from "@/lib/ai/tools/add-communication";
+import { updateCommunication } from "@/lib/ai/tools/update-communication";
+import { deleteCommunication } from "@/lib/ai/tools/delete-communication";
 import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
 import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
 import { createClientReport } from "@/lib/ai/tools/create-client-report";
@@ -209,25 +214,35 @@ export async function POST(request: Request) {
                   "queryClients",
                   "createClient",
                   "updateClient",
+                  "deleteClient",
                   "queryFinancialBalance",
                   "addFinancialTransaction",
+                  "updateFinancialTransaction",
+                  "deleteFinancialTransaction",
                   "getFinancialHistory",
                   "queryCommunications",
                   "addCommunication",
+                  "updateCommunication",
+                  "deleteCommunication",
                   "getCommunicationSummary",
                   "createFinancialStatement",
                   "createClientReport",
-                ],
+                ] as any,
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
             queryClients,
             createClient,
             updateClient,
+            deleteClient,
             queryFinancialBalance,
             addFinancialTransaction,
+            updateFinancialTransaction,
+            deleteFinancialTransaction,
             getFinancialHistory,
             queryCommunications,
             addCommunication,
+            updateCommunication,
+            deleteCommunication,
             getCommunicationSummary,
             createFinancialStatement: createFinancialStatement({ session, dataStream }),
             createClientReport: createClientReport({ session, dataStream }),

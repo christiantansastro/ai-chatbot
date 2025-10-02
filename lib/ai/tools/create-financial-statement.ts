@@ -13,6 +13,7 @@ interface FinancialTransaction {
   transaction_type: string;
   amount: number;
   transaction_date: string;
+  payment_due_date?: string;
   payment_method?: string;
   service_description?: string;
   notes?: string;
@@ -444,6 +445,7 @@ function generateFinancialStatementHTML({
                 <thead>
                     <tr>
                         <th>Date</th>
+                        <th>Due Date</th>
                         <th>Type</th>
                         <th>Description</th>
                         <th>Payment Method</th>
@@ -455,6 +457,7 @@ function generateFinancialStatementHTML({
                     ${transactions.map(transaction => `
                     <tr>
                         <td>${formatDate(transaction.transaction_date)}</td>
+                        <td>${transaction.payment_due_date ? formatDate(transaction.payment_due_date) : '-'}</td>
                         <td><span class="transaction-type ${transaction.transaction_type}">${transaction.transaction_type}</span></td>
                         <td>${transaction.service_description || '-'}</td>
                         <td>${transaction.payment_method || '-'}</td>
