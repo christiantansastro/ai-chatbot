@@ -176,7 +176,8 @@ export type Stream = InferSelectModel<typeof stream>;
 export const client = pgTable("Client", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   client_name: varchar("client_name", { length: 255 }).notNull(),
-  date_intake: date("date_intake"),
+  client_type: varchar("client_type", { length: 20 }), // 'criminal' or 'civil'
+  date_intake: date("date_intake").notNull().defaultNow(),
   date_of_birth: date("date_of_birth"),
   address: text("address"),
   phone: varchar("phone", { length: 50 }),
@@ -186,6 +187,18 @@ export const client = pgTable("Client", {
   contact_2: varchar("contact_2", { length: 255 }),
   relationship_2: varchar("relationship_2", { length: 255 }),
   notes: text("notes"),
+  // Common fields for both client types
+  county: varchar("county", { length: 255 }),
+  court_date: date("court_date"),
+  quoted: varchar("quoted", { length: 20 }), // Using varchar for decimal to avoid precision issues
+  initial_payment: varchar("initial_payment", { length: 20 }),
+  due_date_balance: date("due_date_balance"),
+  // Criminal-specific fields
+  arrested: boolean("arrested"),
+  charges: text("charges"),
+  // Civil-specific fields
+  served_papers_or_initial_filing: text("served_papers_or_initial_filing"),
+  case_type: varchar("case_type", { length: 255 }),
   createdAt: timestamp("createdAt").notNull(),
   updatedAt: timestamp("updatedAt").notNull(),
 });

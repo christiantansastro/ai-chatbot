@@ -94,7 +94,8 @@ CREATE TABLE IF NOT EXISTS streams (
 CREATE TABLE IF NOT EXISTS clients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     client_name TEXT NOT NULL,
-    date_intake DATE,
+    client_type TEXT CHECK (client_type IN ('criminal', 'civil')),
+    date_intake DATE NOT NULL DEFAULT CURRENT_DATE,
     date_of_birth DATE,
     address TEXT,
     phone TEXT,
@@ -104,6 +105,18 @@ CREATE TABLE IF NOT EXISTS clients (
     contact_2 TEXT,
     relationship_2 TEXT,
     notes TEXT,
+    -- Common fields for both client types
+    county TEXT,
+    court_date DATE,
+    quoted DECIMAL(10,2),
+    initial_payment DECIMAL(10,2),
+    due_date_balance DATE,
+    -- Criminal-specific fields
+    arrested BOOLEAN,
+    charges TEXT,
+    -- Civil-specific fields
+    served_papers_or_initial_filing TEXT,
+    case_type TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -125,10 +138,16 @@ CREATE INDEX IF NOT EXISTS idx_clients_client_name ON clients(client_name);
 CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
 CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
 CREATE INDEX IF NOT EXISTS idx_clients_contact_1 ON clients(contact_1);
+CREATE INDEX IF NOT EXISTS idx_clients_client_type ON clients(client_type);
+CREATE INDEX IF NOT EXISTS idx_clients_county ON clients(county);
+CREATE INDEX IF NOT EXISTS idx_clients_arrested ON clients(arrested);
+CREATE INDEX IF NOT EXISTS idx_clients_case_type ON clients(case_type);
+CREATE INDEX IF NOT EXISTS idx_clients_court_date ON clients(court_date);
+CREATE INDEX IF NOT EXISTS idx_clients_due_date_balance ON clients(due_date_balance);
 
 -- Create GIN indexes for full-text search and trigram matching
 CREATE INDEX IF NOT EXISTS idx_clients_search ON clients USING GIN (
-    to_tsvector('english', client_name || ' ' || COALESCE(email, '') || ' ' || COALESCE(phone, '') || ' ' || COALESCE(contact_1, '') || ' ' || COALESCE(address, ''))
+    to_tsvector('english', client_name || ' ' || COALESCE(email, '') || ' ' || COALESCE(phone, '') || ' ' || COALESCE(contact_1, '') || ' ' || COALESCE(address, '') || ' ' || COALESCE(county, '') || ' ' || COALESCE(case_type, '') || ' ' || COALESCE(charges, ''))
 );
 
 -- Create trigram indexes for fuzzy matching (with explicit operator classes)
@@ -337,7 +356,7 @@ CREATE OR REPLACE FUNCTION search_clients_precise(
 )
 RETURNS TABLE (
     client_name TEXT,
-    date_intake DATE,
+    date_intake DATE NOT NULL DEFAULT CURRENT_DATE,
     date_of_birth DATE,
     address TEXT,
     phone TEXT,
@@ -469,27 +488,28 @@ END;
 $$;
 
 -- Insert some sample client data for testing (only if table is empty)
--- This will work with your existing table structure (no id column)
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'John Smith', '2025-09-01', '1988-09-01', '123 Main St, City, State 12345', '012345678', 'john.smith@email.com', 'Jane Smith', 'Spouse', NULL, NULL, 'Key account manager, prefers morning meetings'
+-- Criminal client example
+INSERT INTO clients (client_name, client_type, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, arrested, charges, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'John Smith', 'criminal', '2025-09-01', '1988-09-01', '123 Main St, City, State 12345', '012345678', 'john.smith@email.com', 'Jane Smith', 'Spouse', NULL, NULL, 'Key account manager, prefers morning meetings', 'Cook County', true, 'DUI, Reckless Driving', '2025-10-15', '2500.00', '500.00', '2025-10-30'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'John Smith');
 
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'Sarah Johnson', '2025-08-15', '1990-03-15', '456 Tech Ave, Silicon Valley, CA 94043', '098765432', 'sarah.j@techstart.io', 'Mike Johnson', 'Partner', NULL, NULL, 'Startup founder, very responsive to emails'
+-- Civil client example
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Sarah Johnson', 'civil', '2025-08-15', '1990-03-15', '456 Tech Ave, Silicon Valley, CA 94043', '098765432', 'sarah.j@techstart.io', 'Mike Johnson', 'Partner', NULL, NULL, 'Startup founder, very responsive to emails', 'Santa Clara County', 'Initial filing', 'Business Contract Dispute', '2025-11-20', '3500.00', '1000.00', '2025-11-15'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Sarah Johnson');
 
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'Michael Brown', '2025-09-10', '1985-11-22', '789 Business Blvd, Downtown, NY 10001', '555666777', 'mbrown@consulting.com', 'Sarah Brown', 'Wife', NULL, NULL, 'Potential high-value client, needs follow-up'
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Michael Brown', 'criminal', '2025-09-10', '1985-11-22', '789 Business Blvd, Downtown, NY 10001', '555666777', 'mbrown@consulting.com', 'Sarah Brown', 'Wife', NULL, NULL, 'Potential high-value client, needs follow-up', 'New York County', false, 'Embezzlement, Fraud', '2025-12-01', '7500.00', '2000.00', '2025-11-25'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Michael Brown');
 
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'Emily Davis', '2025-07-20', '1992-05-10', '321 Industrial Rd, Manufacturing District, IL 60601', '111222333', 'emily.davis@manufacturing.com', 'Robert Davis', 'Husband', NULL, NULL, 'Temporarily paused projects, check back in Q2'
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Emily Davis', 'civil', '2025-07-20', '1992-05-10', '321 Industrial Rd, Manufacturing District, IL 60601', '111222333', 'emily.davis@manufacturing.com', 'Robert Davis', 'Husband', NULL, NULL, 'Temporarily paused projects, check back in Q2', 'Cook County', 'Served papers', 'Divorce', '2025-10-25', '5000.00', '1500.00', '2025-10-20'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Emily Davis');
 
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'Robert Wilson', '2025-09-05', '1978-12-03', '654 Retail Plaza, Shopping Center, TX 75001', '444555666', 'rwilson@retailplus.com', 'Mary Wilson', 'Wife', NULL, NULL, 'Prefers phone calls over email'
+INSERT INTO clients (client_name, client_type, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, arrested, charges, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Robert Wilson', ' criminal', '2025-09-05', '1978-12-03', '654 Retail Plaza, Shopping Center, TX 75001', '444555666', 'rwilson@retailplus.com', 'Mary Wilson', 'Wife', NULL, NULL, 'Prefers phone calls over email', 'Dallas County', true, 'Assault, Battery', '2025-11-10', '3000.00', '750.00', '2025-11-05'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Robert Wilson');
 
-INSERT INTO clients (client_name, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes)
-SELECT 'Lisa Anderson', '2025-08-28', '1987-07-18', '987 Design Studio St, Arts District, CA 90210', '777888999', 'lisa@designstudio.com', 'Tom Anderson', 'Husband', NULL, NULL, 'Creative professional, values detailed proposals'
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Lisa Anderson', 'civil', '2025-08-28', '1987-07-18', '987 Design Studio St, Arts District, CA 90210', '777888999', 'lisa@designstudio.com', 'Tom Anderson', 'Husband', NULL, NULL, 'Creative professional, values detailed proposals', 'Los Angeles County', 'Initial filing', 'Child Custody', '2025-12-15', '4000.00', '1200.00', '2025-12-10'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Lisa Anderson');

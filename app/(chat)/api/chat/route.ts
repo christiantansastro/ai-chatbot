@@ -27,6 +27,7 @@ import { createClient } from "@/lib/ai/tools/create-client";
 import { updateClient } from "@/lib/ai/tools/update-client";
 import { deleteClient } from "@/lib/ai/tools/delete-client";
 import { queryFinancialBalance } from "@/lib/ai/tools/query-financial-balance";
+import { queryRecentPayments } from "@/lib/ai/tools/query-recent-payments";
 import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
 import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
 import { deleteFinancialTransaction } from "@/lib/ai/tools/delete-financial-transaction";
@@ -216,6 +217,7 @@ export async function POST(request: Request) {
                   "updateClient",
                   "deleteClient",
                   "queryFinancialBalance",
+                  "queryRecentPayments",
                   "addFinancialTransaction",
                   "updateFinancialTransaction",
                   "deleteFinancialTransaction",
@@ -235,6 +237,7 @@ export async function POST(request: Request) {
             updateClient,
             deleteClient,
             queryFinancialBalance,
+            queryRecentPayments,
             addFinancialTransaction,
             updateFinancialTransaction,
             deleteFinancialTransaction,
