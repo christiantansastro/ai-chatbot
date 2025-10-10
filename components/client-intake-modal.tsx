@@ -39,11 +39,36 @@ interface ClientFormData {
 
   // Criminal-specific fields
   arrested: boolean;
+  arrested_county: string;
+  currently_incarcerated: boolean;
+  incarceration_location: string;
+  incarceration_reason: string;
+  last_bond_hearing_date: string;
+  last_bond_hearing_location: string;
+  date_of_incident: string;
+  incident_county: string;
+  on_probation: boolean;
+  probation_county: string;
+  probation_officer: string;
+  probation_time_left: string;
+  on_parole: boolean;
+  parole_officer: string;
+  parole_time_left: string;
+  arrest_reason: string;
   charges: string;
 
   // Civil-specific fields
   served_papers_or_initial_filing: string;
   case_type: string;
+  other_side_name: string;
+  other_side_relation: string;
+  other_side_represented_by_attorney: boolean;
+  other_side_contact_info: string;
+  children_involved: boolean;
+  children_details: string;
+  previous_court_orders: boolean;
+  previous_orders_county: string;
+  previous_orders_case_number: string;
 }
 
 interface FormErrors {
@@ -80,9 +105,34 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     initial_payment: "",
     due_date_balance: "",
     arrested: false,
+    arrested_county: "",
+    currently_incarcerated: false,
+    incarceration_location: "",
+    incarceration_reason: "",
+    last_bond_hearing_date: "",
+    last_bond_hearing_location: "",
+    date_of_incident: "",
+    incident_county: "",
+    on_probation: false,
+    probation_county: "",
+    probation_officer: "",
+    probation_time_left: "",
+    on_parole: false,
+    parole_officer: "",
+    parole_time_left: "",
+    arrest_reason: "",
     charges: "",
     served_papers_or_initial_filing: "",
     case_type: "",
+    other_side_name: "",
+    other_side_relation: "",
+    other_side_represented_by_attorney: false,
+    other_side_contact_info: "",
+    children_involved: false,
+    children_details: "",
+    previous_court_orders: false,
+    previous_orders_county: "",
+    previous_orders_case_number: "",
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -95,14 +145,18 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       newErrors.client_name = "Client name is required";
     }
 
-    if (!formData.email.trim()) {
-      newErrors.email = "Email is required";
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    // Email validation (optional but format check if provided)
+    if (formData.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = "Please enter a valid email address";
     }
 
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required";
+    }
+
+    // DOB is required for criminal cases, optional for civil
+    if (formData.client_type === "criminal" && !formData.date_of_birth.trim()) {
+      newErrors.date_of_birth = "Date of birth is required for criminal cases";
     }
 
     // Validate date formats if provided
@@ -166,8 +220,33 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       // Add type-specific fields
       if (formData.client_type === "criminal") {
         if (formData.arrested !== undefined) submissionData.arrested = formData.arrested;
+        if (formData.arrested_county) submissionData.arrested_county = formData.arrested_county;
+        if (formData.currently_incarcerated !== undefined) submissionData.currently_incarcerated = formData.currently_incarcerated;
+        if (formData.incarceration_location) submissionData.incarceration_location = formData.incarceration_location;
+        if (formData.incarceration_reason) submissionData.incarceration_reason = formData.incarceration_reason;
+        if (formData.last_bond_hearing_date) submissionData.last_bond_hearing_date = formData.last_bond_hearing_date;
+        if (formData.last_bond_hearing_location) submissionData.last_bond_hearing_location = formData.last_bond_hearing_location;
+        if (formData.date_of_incident) submissionData.date_of_incident = formData.date_of_incident;
+        if (formData.incident_county) submissionData.incident_county = formData.incident_county;
+        if (formData.on_probation !== undefined) submissionData.on_probation = formData.on_probation;
+        if (formData.probation_county) submissionData.probation_county = formData.probation_county;
+        if (formData.probation_officer) submissionData.probation_officer = formData.probation_officer;
+        if (formData.probation_time_left) submissionData.probation_time_left = formData.probation_time_left;
+        if (formData.on_parole !== undefined) submissionData.on_parole = formData.on_parole;
+        if (formData.parole_officer) submissionData.parole_officer = formData.parole_officer;
+        if (formData.parole_time_left) submissionData.parole_time_left = formData.parole_time_left;
+        if (formData.arrest_reason) submissionData.arrest_reason = formData.arrest_reason;
         if (formData.charges) submissionData.charges = formData.charges;
       } else if (formData.client_type === "civil") {
+        if (formData.other_side_name) submissionData.other_side_name = formData.other_side_name;
+        if (formData.other_side_relation) submissionData.other_side_relation = formData.other_side_relation;
+        if (formData.other_side_represented_by_attorney !== undefined) submissionData.other_side_represented_by_attorney = formData.other_side_represented_by_attorney;
+        if (formData.other_side_contact_info) submissionData.other_side_contact_info = formData.other_side_contact_info;
+        if (formData.children_involved !== undefined) submissionData.children_involved = formData.children_involved;
+        if (formData.children_details) submissionData.children_details = formData.children_details;
+        if (formData.previous_court_orders !== undefined) submissionData.previous_court_orders = formData.previous_court_orders;
+        if (formData.previous_orders_county) submissionData.previous_orders_county = formData.previous_orders_county;
+        if (formData.previous_orders_case_number) submissionData.previous_orders_case_number = formData.previous_orders_case_number;
         if (formData.served_papers_or_initial_filing) {
           submissionData.served_papers_or_initial_filing = formData.served_papers_or_initial_filing;
         }
@@ -198,9 +277,34 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             initial_payment: "",
             due_date_balance: "",
             arrested: false,
+            arrested_county: "",
+            currently_incarcerated: false,
+            incarceration_location: "",
+            incarceration_reason: "",
+            last_bond_hearing_date: "",
+            last_bond_hearing_location: "",
+            date_of_incident: "",
+            incident_county: "",
+            on_probation: false,
+            probation_county: "",
+            probation_officer: "",
+            probation_time_left: "",
+            on_parole: false,
+            parole_officer: "",
+            parole_time_left: "",
+            arrest_reason: "",
             charges: "",
             served_papers_or_initial_filing: "",
             case_type: "",
+            other_side_name: "",
+            other_side_relation: "",
+            other_side_represented_by_attorney: false,
+            other_side_contact_info: "",
+            children_involved: false,
+            children_details: "",
+            previous_court_orders: false,
+            previous_orders_county: "",
+            previous_orders_case_number: "",
           });
           setIsOpen(false);
         }, 2000);
@@ -238,7 +342,7 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
 
         <div>
           <Label htmlFor="email">
-            Email <span className="text-destructive">*</span>
+            Email
           </Label>
           <Input
             id="email"
@@ -272,7 +376,9 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
         </div>
 
         <div>
-          <Label htmlFor="date_of_birth">Date of Birth</Label>
+          <Label htmlFor="date_of_birth">
+            Date of Birth {formData.client_type === "criminal" && <span className="text-destructive">*</span>}
+          </Label>
           <Input
             id="date_of_birth"
             type="date"
@@ -428,6 +534,175 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
           />
           Arrested
         </Label>
+        {formData.arrested && (
+          <div className="mt-2">
+            <Label htmlFor="arrested_county">County</Label>
+            <Input
+              id="arrested_county"
+              value={formData.arrested_county}
+              onChange={(e) => handleInputChange("arrested_county", e.target.value)}
+              placeholder="County where arrested"
+            />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.currently_incarcerated}
+            onChange={(e) => handleInputChange("currently_incarcerated", e.target.checked)}
+            className="rounded"
+          />
+          Currently Incarcerated
+        </Label>
+        {formData.currently_incarcerated && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <Label htmlFor="incarceration_location">Where & Why</Label>
+              <Input
+                id="incarceration_location"
+                value={formData.incarceration_location}
+                onChange={(e) => handleInputChange("incarceration_location", e.target.value)}
+                placeholder="Location and reason for incarceration"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="last_bond_hearing_date">Last Bond Hearing Date</Label>
+                <Input
+                  id="last_bond_hearing_date"
+                  type="date"
+                  value={formData.last_bond_hearing_date}
+                  onChange={(e) => handleInputChange("last_bond_hearing_date", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="last_bond_hearing_location">Location</Label>
+                <Input
+                  id="last_bond_hearing_location"
+                  value={formData.last_bond_hearing_location}
+                  onChange={(e) => handleInputChange("last_bond_hearing_location", e.target.value)}
+                  placeholder="Where was the bond hearing"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="date_of_incident">Date of Incident</Label>
+          <Input
+            id="date_of_incident"
+            type="date"
+            value={formData.date_of_incident}
+            onChange={(e) => handleInputChange("date_of_incident", e.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="incident_county">County of Incident</Label>
+          <Input
+            id="incident_county"
+            value={formData.incident_county}
+            onChange={(e) => handleInputChange("incident_county", e.target.value)}
+            placeholder="County where incident occurred"
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.on_probation}
+            onChange={(e) => handleInputChange("on_probation", e.target.checked)}
+            className="rounded"
+          />
+          On Probation
+        </Label>
+        {formData.on_probation && (
+          <div className="mt-2 space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <div>
+                <Label htmlFor="probation_county">County</Label>
+                <Input
+                  id="probation_county"
+                  value={formData.probation_county}
+                  onChange={(e) => handleInputChange("probation_county", e.target.value)}
+                  placeholder="County"
+                />
+              </div>
+              <div>
+                <Label htmlFor="probation_officer">PO Name</Label>
+                <Input
+                  id="probation_officer"
+                  value={formData.probation_officer}
+                  onChange={(e) => handleInputChange("probation_officer", e.target.value)}
+                  placeholder="Probation officer"
+                />
+              </div>
+              <div>
+                <Label htmlFor="probation_time_left">Time Left</Label>
+                <Input
+                  id="probation_time_left"
+                  value={formData.probation_time_left}
+                  onChange={(e) => handleInputChange("probation_time_left", e.target.value)}
+                  placeholder="e.g., 2 years"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.on_parole}
+            onChange={(e) => handleInputChange("on_parole", e.target.checked)}
+            className="rounded"
+          />
+          On Parole
+        </Label>
+        {formData.on_parole && (
+          <div className="mt-2 space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div>
+                <Label htmlFor="parole_officer">PO Name</Label>
+                <Input
+                  id="parole_officer"
+                  value={formData.parole_officer}
+                  onChange={(e) => handleInputChange("parole_officer", e.target.value)}
+                  placeholder="Parole officer"
+                />
+              </div>
+              <div>
+                <Label htmlFor="parole_time_left">Time Left</Label>
+                <Input
+                  id="parole_time_left"
+                  value={formData.parole_time_left}
+                  onChange={(e) => handleInputChange("parole_time_left", e.target.value)}
+                  placeholder="e.g., 1 year"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label htmlFor="arrest_reason">What Led to the Arrest</Label>
+        <Textarea
+          id="arrest_reason"
+          value={formData.arrest_reason}
+          onChange={(e) => handleInputChange("arrest_reason", e.target.value)}
+          placeholder="Description of what led to the arrest"
+          rows={3}
+        />
       </div>
 
       <div>
@@ -445,6 +720,112 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
 
   const renderCivilFields = () => (
     <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="other_side_name">Name of Other Side</Label>
+          <Input
+            id="other_side_name"
+            value={formData.other_side_name}
+            onChange={(e) => handleInputChange("other_side_name", e.target.value)}
+            placeholder="Name of opposing party"
+          />
+        </div>
+        <div>
+          <Label htmlFor="other_side_relation">Relation</Label>
+          <Input
+            id="other_side_relation"
+            value={formData.other_side_relation}
+            onChange={(e) => handleInputChange("other_side_relation", e.target.value)}
+            placeholder="e.g., Spouse, Business partner"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.other_side_represented_by_attorney}
+            onChange={(e) => handleInputChange("other_side_represented_by_attorney", e.target.checked)}
+            className="rounded"
+          />
+          Represented by Attorney
+        </Label>
+
+        <div>
+          <Input
+            id="other_side_contact_info"
+            value={formData.other_side_contact_info}
+            onChange={(e) => handleInputChange("other_side_contact_info", e.target.value)}
+            placeholder="Contact info for other side"
+            disabled={formData.other_side_represented_by_attorney}
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            {formData.other_side_represented_by_attorney
+              ? "Not needed when represented by attorney"
+              : "Contact information for the other side"}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.children_involved}
+            onChange={(e) => handleInputChange("children_involved", e.target.checked)}
+            className="rounded"
+          />
+          Are there kids involved?
+        </Label>
+        {formData.children_involved && (
+          <div className="mt-2">
+            <Label htmlFor="children_details">Children Details</Label>
+            <Textarea
+              id="children_details"
+              value={formData.children_details}
+              onChange={(e) => handleInputChange("children_details", e.target.value)}
+              placeholder="Names, DOBs, and who currently has custody"
+              rows={3}
+            />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <Label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={formData.previous_court_orders}
+            onChange={(e) => handleInputChange("previous_court_orders", e.target.checked)}
+            className="rounded"
+          />
+          Are there previous court orders prior to this current action?
+        </Label>
+        {formData.previous_court_orders && (
+          <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <Label htmlFor="previous_orders_county">County</Label>
+              <Input
+                id="previous_orders_county"
+                value={formData.previous_orders_county}
+                onChange={(e) => handleInputChange("previous_orders_county", e.target.value)}
+                placeholder="County"
+              />
+            </div>
+            <div>
+              <Label htmlFor="previous_orders_case_number">Case Number</Label>
+              <Input
+                id="previous_orders_case_number"
+                value={formData.previous_orders_case_number}
+                onChange={(e) => handleInputChange("previous_orders_case_number", e.target.value)}
+                placeholder="Case number"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
       <div>
         <Label htmlFor="served_papers_or_initial_filing">Served Papers or Initial Filing</Label>
         <Textarea
@@ -462,7 +843,7 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
           id="case_type"
           value={formData.case_type}
           onChange={(e) => handleInputChange("case_type", e.target.value)}
-          placeholder="e.g., Divorce, Custody, Contract Dispute"
+          placeholder="e.g., Divorce, Custody, Personal Injury"
         />
       </div>
     </div>

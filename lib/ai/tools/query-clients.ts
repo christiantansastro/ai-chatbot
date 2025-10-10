@@ -16,12 +16,17 @@ interface ClientData {
 }
 
 export const queryClients = tool({
-  description: "Query client information from the database with precise matching that prioritizes exact name matches over fuzzy matches. Searches across name, email, phone, address, and contact information",
+  description: "Query client information from the database with precise matching that prioritizes exact name matches over fuzzy matches. Searches across name, email, phone, address, and contact information. Can also filter by specific criteria like arrest status.",
   inputSchema: z.object({
-    query: z.string().describe("Search query with precise matching that prioritizes exact name matches (client name, email, phone, address, or contact information)"),
+    query: z.string().optional().describe("Search query with precise matching that prioritizes exact name matches (client name, email, phone, address, or contact information). If not provided, will return all clients or use filter criteria"),
     limit: z.number().optional().default(10).describe("Maximum number of results to return"),
+    filterByArrested: z.boolean().optional().describe("Filter to only clients who are arrested (true) or not arrested (false)"),
+    filterByIncarcerated: z.boolean().optional().describe("Filter to only clients who are currently incarcerated (true) or not (false)"),
+    filterByProbation: z.boolean().optional().describe("Filter to only clients who are on probation (true) or not (false)"),
+    filterByParole: z.boolean().optional().describe("Filter to only clients who are on parole (true) or not (false)"),
+    clientType: z.enum(["civil", "criminal"]).optional().describe("Filter by client type (civil or criminal)"),
   }),
-  execute: async ({ query, limit = 10 }) => {
+  execute: async ({ query, limit = 10, filterByArrested, filterByIncarcerated, filterByProbation, filterByParole, clientType }) => {
     try {
       console.log('🔍 CLIENT QUERY TOOL: Starting search for:', { query, limit });
 
@@ -44,7 +49,17 @@ export const queryClients = tool({
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       // Enhanced search with fuzzy matching and multiple strategies
-      const searchTerm = `%${query.toLowerCase()}%`;
+      // Only require query if no filters are provided
+      if (!query && !filterByArrested && !filterByIncarcerated && !filterByProbation && !filterByParole && !clientType) {
+        console.log('❌ CLIENT QUERY TOOL: No query or filters provided');
+        return {
+          success: false,
+          message: 'No search query or filter criteria provided',
+          results: []
+        };
+      }
+
+      const searchTerm = query ? `%${query.toLowerCase()}%` : '';
 
       console.log('🔍 CLIENT QUERY TOOL: Starting database search strategies');
 
@@ -67,9 +82,99 @@ export const queryClients = tool({
       console.log('✅ CLIENT QUERY TOOL: Database connection successful');
       console.log('🔍 CLIENT QUERY TOOL: Found', allClients?.length || 0, 'clients in database');
 
-      // Strategy 1: Try precise search using stored procedure (prioritizes exact matches)
+      // Apply filters if specified
+      let filterConditions: string[] = [];
+      let filterValues: any = {};
+
+      if (filterByArrested !== undefined) {
+        filterConditions.push(`arrested = $${Object.keys(filterValues).length + 1}`);
+        filterValues[Object.keys(filterValues).length + 1] = filterByArrested;
+      }
+
+      if (filterByIncarcerated !== undefined) {
+        filterConditions.push(`currently_incarcerated = $${Object.keys(filterValues).length + 1}`);
+        filterValues[Object.keys(filterValues).length + 1] = filterByIncarcerated;
+      }
+
+      if (filterByProbation !== undefined) {
+        filterConditions.push(`on_probation = $${Object.keys(filterValues).length + 1}`);
+        filterValues[Object.keys(filterValues).length + 1] = filterByProbation;
+      }
+
+      if (filterByParole !== undefined) {
+        filterConditions.push(`on_parole = $${Object.keys(filterValues).length + 1}`);
+        filterValues[Object.keys(filterValues).length + 1] = filterByParole;
+      }
+
+      if (clientType) {
+        filterConditions.push(`client_type = $${Object.keys(filterValues).length + 1}`);
+        filterValues[Object.keys(filterValues).length + 1] = clientType;
+      }
+
+      // If no text query but we have filters, get all clients and apply filters
+      if (!query && filterConditions.length > 0) {
+        console.log('🔍 CLIENT QUERY TOOL: Applying filters without text search');
+
+        // Get all clients with all fields for filtering
+        const { data: allClientsFull, error: allClientsFullError } = await supabase
+          .from('clients')
+          .select('*');
+
+        // Apply filters manually since Supabase doesn't support dynamic parameterized queries easily
+        let filteredResults: any[] = [];
+        if (allClientsFull && !allClientsFullError) {
+          filteredResults = allClientsFull.filter(client => {
+            if (filterByArrested !== undefined && client.arrested !== filterByArrested) return false;
+            if (filterByIncarcerated !== undefined && client.currently_incarcerated !== filterByIncarcerated) return false;
+            if (filterByProbation !== undefined && client.on_probation !== filterByProbation) return false;
+            if (filterByParole !== undefined && client.on_parole !== filterByParole) return false;
+            if (clientType && client.client_type !== clientType) return false;
+            return true;
+          });
+        }
+
+        if (filteredResults.length > 0) {
+          console.log(`✅ CLIENT QUERY TOOL: Filter search found ${filteredResults.length} results`);
+
+          const formattedResults = filteredResults.slice(0, limit).map((client: any, index: number) => ({
+            id: client.id || `client_${index + 1}`,
+            name: client.client_name,
+            email: client.email ? `${client.email} ` : 'Not provided',
+            phone: client.phone || 'Not provided',
+            dateOfBirth: client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString() : 'Not provided',
+            address: client.address || 'Not provided',
+            contact1: client.contact_1 || 'Not provided',
+            relationship1: client.relationship_1 || 'Not provided',
+            contact2: client.contact_2 || 'Not provided',
+            relationship2: client.relationship_2 || 'Not provided',
+            notes: client.notes || 'No notes',
+            intakeDate: client.date_intake ? new Date(client.date_intake).toLocaleDateString() : 'Not provided',
+            lastUpdated: client.updated_at ? new Date(client.updated_at).toLocaleDateString() : 'Not provided',
+            arrested: client.arrested !== undefined ? (client.arrested ? 'Yes' : 'No') : 'Not specified',
+            arrestedCounty: client.arrested_county || 'Not provided',
+            currentlyIncarcerated: client.currently_incarcerated !== undefined ? (client.currently_incarcerated ? 'Yes' : 'No') : 'Not specified',
+            onProbation: client.on_probation !== undefined ? (client.on_probation ? 'Yes' : 'No') : 'Not specified',
+            onParole: client.on_parole !== undefined ? (client.on_parole ? 'Yes' : 'No') : 'Not specified',
+            clientType: client.client_type || 'Not specified',
+            summary: `${client.client_name} (${client.client_type || 'Unspecified'}) - ${client.email ? client.email + ' ' : 'No email'} (${client.phone || 'No phone'})`
+          }));
+
+          return {
+            success: true,
+            message: `Found ${filteredResults.length} client${filteredResults.length === 1 ? '' : 's'} matching filter criteria`,
+            results: formattedResults,
+            totalCount: filteredResults.length
+          };
+        }
+      }
+
+      // Initialize result arrays
       let preciseResults: any[] = [];
-      try {
+      let textResults: any[] = [];
+      let wordResults: any[] = [];
+
+      if (query) {
+        try {
         console.log('🔍 CLIENT QUERY TOOL: Trying precise search...');
         const { data: preciseData, error: preciseError } = await supabase
           .rpc('search_clients_precise', {
@@ -108,8 +213,10 @@ export const queryClients = tool({
           console.warn('⚠️ CLIENT QUERY TOOL: Basic search not available:', basicErr);
         }
       }
+      } // Close the if (query) block for precise search
 
-      // Strategy 2: Direct text-based search with intelligent ordering (always works as fallback)
+      // Strategy 2: Direct text-based search with intelligent ordering (always works as fallback) - only if we have a query
+      if (query) {
       let textResults: any[] = [];
       try {
         console.log('🔍 CLIENT QUERY TOOL: Trying direct text-based search...');
@@ -158,7 +265,7 @@ export const queryClients = tool({
 
       // Strategy 3: Try individual word matching for better partial results
       let wordResults: any[] = [];
-      if (query.includes(' ')) {
+      if (query && query.includes(' ')) {
         const words = query.toLowerCase().split(' ').filter(word => word.length > 2);
         if (words.length > 1) {
           try {
@@ -186,6 +293,7 @@ export const queryClients = tool({
           }
         }
       }
+      } // Close the if (query) block for text search
 
       // Combine and deduplicate results with intelligent prioritization
       const allResults = new Map();
@@ -203,7 +311,7 @@ export const queryClients = tool({
 
       // Process precise results
       for (const result of preciseResults) {
-        if (isExactMatch(result, query)) {
+        if (query && isExactMatch(result, query)) {
           exactMatches.push({ ...result, matchType: 'exact' });
         } else {
           partialMatches.push({ ...result, matchType: 'precise_partial' });
@@ -212,7 +320,7 @@ export const queryClients = tool({
 
       // Process text results
       for (const result of textResults) {
-        if (isExactMatch(result, query)) {
+        if (query && isExactMatch(result, query)) {
           exactMatches.push({ ...result, matchType: 'exact_text' });
         } else {
           partialMatches.push({ ...result, matchType: 'text_partial' });
@@ -221,7 +329,7 @@ export const queryClients = tool({
 
       // Process word results
       for (const result of wordResults) {
-        if (isExactMatch(result, query)) {
+        if (query && isExactMatch(result, query)) {
           exactMatches.push({ ...result, matchType: 'exact_word' });
         } else {
           partialMatches.push({ ...result, matchType: 'word_partial' });
@@ -295,7 +403,7 @@ export const queryClients = tool({
         notes: client.notes || 'No notes',
         intakeDate: client.date_intake ? new Date(client.date_intake).toLocaleDateString() : 'Not provided',
         lastUpdated: client.updated_at ? new Date(client.updated_at).toLocaleDateString() : 'Not provided',
-        summary: `${client.client_name} - ${client.email || 'No email'} (${client.phone || 'No phone'})`
+        summary: `${client.client_name} - ${client.email ? client.email + ' ' : 'No email'} (${client.phone || 'No phone'})`
       }));
 
       return {
