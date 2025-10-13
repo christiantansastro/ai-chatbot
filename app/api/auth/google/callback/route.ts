@@ -36,6 +36,6 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error('OAuth callback failed:', error);
     // For error case, we'll redirect to a generic error page
-    return NextResponse.redirect(new URL('/?oauth=error', 'http://localhost:3000'));
+    return NextResponse.redirect(new URL('/?oauth=error', 'https://ai-chatbot-sepia-ten.vercel.app'));
   }
 }
