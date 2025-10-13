@@ -49,14 +49,64 @@ export const queryClients = tool({
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       // Enhanced search with fuzzy matching and multiple strategies
-      // Only require query if no filters are provided
+      // Allow listing all clients if no query and no filters are provided
       if (!query && !filterByArrested && !filterByIncarcerated && !filterByProbation && !filterByParole && !clientType) {
-        console.log('❌ CLIENT QUERY TOOL: No query or filters provided');
-        return {
-          success: false,
-          message: 'No search query or filter criteria provided',
-          results: []
-        };
+        console.log('🔍 CLIENT QUERY TOOL: Listing all clients');
+
+        // Get all clients with all fields
+        const { data: allClientsFull, error: allClientsFullError } = await supabase
+          .from('clients')
+          .select('*')
+          .order('client_name');
+
+        if (allClientsFullError) {
+          console.error('❌ CLIENT QUERY TOOL: Error fetching all clients:', allClientsFullError);
+          return {
+            success: false,
+            message: `Database error: ${allClientsFullError.message}`,
+            results: []
+          };
+        }
+
+        if (allClientsFull && allClientsFull.length > 0) {
+          console.log(`✅ CLIENT QUERY TOOL: Found ${allClientsFull.length} clients`);
+
+          const formattedResults = allClientsFull.slice(0, limit).map((client: any, index: number) => ({
+            id: client.id || `client_${index + 1}`,
+            name: client.client_name,
+            email: client.email ? `${client.email} ` : 'Not provided',
+            phone: client.phone || 'Not provided',
+            dateOfBirth: client.date_of_birth ? new Date(client.date_of_birth).toLocaleDateString() : 'Not provided',
+            address: client.address || 'Not provided',
+            contact1: client.contact_1 || 'Not provided',
+            relationship1: client.relationship_1 || 'Not provided',
+            contact2: client.contact_2 || 'Not provided',
+            relationship2: client.relationship_2 || 'Not provided',
+            notes: client.notes || 'No notes',
+            intakeDate: client.date_intake ? new Date(client.date_intake).toLocaleDateString() : 'Not provided',
+            lastUpdated: client.updated_at ? new Date(client.updated_at).toLocaleDateString() : 'Not provided',
+            arrested: client.arrested !== undefined ? (client.arrested ? 'Yes' : 'No') : 'Not specified',
+            arrestedCounty: client.arrested_county || 'Not provided',
+            currentlyIncarcerated: client.currently_incarcerated !== undefined ? (client.currently_incarcerated ? 'Yes' : 'No') : 'Not specified',
+            onProbation: client.on_probation !== undefined ? (client.on_probation ? 'Yes' : 'No') : 'Not specified',
+            onParole: client.on_parole !== undefined ? (client.on_parole ? 'Yes' : 'No') : 'Not specified',
+            clientType: client.client_type || 'Not specified',
+            summary: `${client.client_name} (${client.client_type || 'Unspecified'}) - ${client.email ? client.email + ' ' : 'No email'} (${client.phone || 'No phone'})`
+          }));
+
+          return {
+            success: true,
+            message: `Found ${allClientsFull.length} client${allClientsFull.length === 1 ? '' : 's'}`,
+            results: formattedResults,
+            totalCount: allClientsFull.length
+          };
+        } else {
+          return {
+            success: false,
+            message: 'No clients found in the database',
+            results: []
+          };
+        }
       }
 
       const searchTerm = query ? `%${query.toLowerCase()}%` : '';
