@@ -39,6 +39,20 @@ import { deleteCommunication } from "@/lib/ai/tools/delete-communication";
 import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
 import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
 import { createClientReport } from "@/lib/ai/tools/create-client-report";
+// Google Tools
+import {
+  createCalendarEvent,
+  readCalendarEvents,
+  updateCalendarEvent,
+  deleteCalendarEvent
+} from "@/lib/ai/tools/google-calendar";
+import {
+  createTask,
+  readTasks,
+  updateTask,
+  deleteTask,
+  markTaskComplete
+} from "@/lib/ai/tools/google-tasks";
 import { isProductionEnvironment } from "@/lib/constants";
 import {
   createStreamId,
@@ -229,6 +243,16 @@ export async function POST(request: Request) {
                   "getCommunicationSummary",
                   "createFinancialStatement",
                   "createClientReport",
+                  // Google Tools
+                  "createCalendarEvent",
+                  "readCalendarEvents",
+                  "updateCalendarEvent",
+                  "deleteCalendarEvent",
+                  "createTask",
+                  "readTasks",
+                  "updateTask",
+                  "deleteTask",
+                  "markTaskComplete",
                 ] as any,
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: {
@@ -249,6 +273,16 @@ export async function POST(request: Request) {
             getCommunicationSummary,
             createFinancialStatement: createFinancialStatement({ session, dataStream }),
             createClientReport: createClientReport({ session, dataStream }),
+            // Google Tools
+            createCalendarEvent,
+            readCalendarEvents,
+            updateCalendarEvent,
+            deleteCalendarEvent,
+            createTask,
+            readTasks,
+            updateTask,
+            deleteTask,
+            markTaskComplete,
           },
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
