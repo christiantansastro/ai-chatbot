@@ -15,7 +15,7 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 // Update the import path if the Tabs components are located elsewhere, for example:
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClientAction } from "@/app/(chat)/actions";
 
 interface ClientFormData {
@@ -105,6 +105,7 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     quoted: "",
     initial_payment: "",
     due_date_balance: "",
+    payment_method: "",
     arrested: false,
     arrested_county: "",
     currently_incarcerated: false,
