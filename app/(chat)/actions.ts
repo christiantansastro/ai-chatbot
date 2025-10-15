@@ -91,6 +91,7 @@ interface CreateClientData {
   quoted?: string;
   initial_payment?: string;
   due_date_balance?: string;
+  payment_method?: string;
   other_side_name?: string;
   other_side_relation?: string;
   other_side_represented_by_attorney?: boolean;
@@ -195,6 +196,90 @@ export async function createClientAction(clientData: CreateClientData): Promise<
     }
 
     console.log('✅ CLIENT CREATE ACTION: Client created successfully:', data);
+
+    // Check if financial fields are provided and create financial records
+    const financialFields = {
+      quoted: clientData.quoted,
+      initial_payment: clientData.initial_payment,
+      due_date_balance: clientData.due_date_balance,
+      payment_method: clientData.payment_method
+    };
+
+    const hasFinancialData = Object.values(financialFields).some(value => value && value.trim() !== '');
+
+    if (hasFinancialData) {
+      console.log('💰 CLIENT CREATE ACTION: Financial data detected, creating financial records...');
+
+      try {
+        // Create quote transaction if quoted amount is provided
+        if (financialFields.quoted && financialFields.quoted.trim() !== '') {
+          const quoteAmount = parseFloat(financialFields.quoted.replace(/[$,]/g, ''));
+
+          if (!isNaN(quoteAmount) && quoteAmount > 0) {
+            const quoteTransaction = {
+              client_id: data.id,
+              client_name: data.client_name,
+              transaction_type: 'quote',
+              amount: quoteAmount,
+              transaction_date: new Date().toISOString().split('T')[0],
+              payment_due_date: financialFields.due_date_balance && financialFields.due_date_balance.trim() !== ''
+                ? financialFields.due_date_balance
+                : null,
+              service_description: `Initial consultation and case setup for ${data.client_type || 'legal'} matter`,
+              notes: 'Automatically created from client intake form'
+            };
+
+            console.log('💰 CLIENT CREATE ACTION: Creating quote transaction:', quoteTransaction);
+
+            const { error: quoteError } = await supabase
+              .from('financials')
+              .insert(quoteTransaction);
+
+            if (quoteError) {
+              console.error('❌ CLIENT CREATE ACTION: Failed to create quote transaction:', quoteError);
+            } else {
+              console.log('✅ CLIENT CREATE ACTION: Quote transaction created successfully');
+            }
+          }
+        }
+
+        // Create payment transaction if initial payment is provided
+        if (financialFields.initial_payment && financialFields.initial_payment.trim() !== '') {
+          const paymentAmount = parseFloat(financialFields.initial_payment.replace(/[$,]/g, ''));
+
+          if (!isNaN(paymentAmount) && paymentAmount > 0) {
+            const paymentTransaction = {
+              client_id: data.id,
+              client_name: data.client_name,
+              transaction_type: 'payment',
+              amount: paymentAmount,
+              payment_method: financialFields.payment_method && financialFields.payment_method.trim() !== ''
+                ? financialFields.payment_method
+                : 'Not specified',
+              transaction_date: new Date().toISOString().split('T')[0],
+              service_description: 'Initial payment received during intake',
+              notes: 'Automatically created from client intake form'
+            };
+
+            console.log('💰 CLIENT CREATE ACTION: Creating payment transaction:', paymentTransaction);
+
+            const { error: paymentError } = await supabase
+              .from('financials')
+              .insert(paymentTransaction);
+
+            if (paymentError) {
+              console.error('❌ CLIENT CREATE ACTION: Failed to create payment transaction:', paymentError);
+            } else {
+              console.log('✅ CLIENT CREATE ACTION: Payment transaction created successfully');
+            }
+          }
+        }
+
+      } catch (financialError) {
+        console.error('❌ CLIENT CREATE ACTION: Error creating financial records:', financialError);
+        // Don't fail the entire operation if financial records fail
+      }
+    }
 
     // Format the response
     const createdClient = {

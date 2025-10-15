@@ -36,6 +36,7 @@ interface ClientFormData {
   quoted: string;
   initial_payment: string;
   due_date_balance: string;
+  payment_method: string;
 
   // Criminal-specific fields
   arrested: boolean;
@@ -216,6 +217,7 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       if (formData.quoted) submissionData.quoted = formData.quoted;
       if (formData.initial_payment) submissionData.initial_payment = formData.initial_payment;
       if (formData.due_date_balance) submissionData.due_date_balance = formData.due_date_balance;
+      if (formData.payment_method) submissionData.payment_method = formData.payment_method;
 
       // Add type-specific fields
       if (formData.client_type === "criminal") {
@@ -276,6 +278,7 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             quoted: "",
             initial_payment: "",
             due_date_balance: "",
+            payment_method: "",
             arrested: false,
             arrested_county: "",
             currently_incarcerated: false,
@@ -495,18 +498,28 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
         </div>
 
         <div>
-          <Label htmlFor="due_date_balance">Balance Due Date</Label>
+          <Label htmlFor="payment_method">Payment Method</Label>
           <Input
-            id="due_date_balance"
-            type="date"
-            value={formData.due_date_balance}
-            onChange={(e) => handleInputChange("due_date_balance", e.target.value)}
-            className={errors.due_date_balance ? "border-destructive" : ""}
+            id="payment_method"
+            value={formData.payment_method}
+            onChange={(e) => handleInputChange("payment_method", e.target.value)}
+            placeholder="e.g., Cash, Credit Card, Bank Transfer"
           />
-          {errors.due_date_balance && (
-            <p className="text-sm text-destructive mt-1">{errors.due_date_balance}</p>
-          )}
         </div>
+      </div>
+
+      <div>
+        <Label htmlFor="due_date_balance">Balance Due Date</Label>
+        <Input
+          id="due_date_balance"
+          type="date"
+          value={formData.due_date_balance}
+          onChange={(e) => handleInputChange("due_date_balance", e.target.value)}
+          className={errors.due_date_balance ? "border-destructive" : ""}
+        />
+        {errors.due_date_balance && (
+          <p className="text-sm text-destructive mt-1">{errors.due_date_balance}</p>
+        )}
       </div>
 
       <div>
