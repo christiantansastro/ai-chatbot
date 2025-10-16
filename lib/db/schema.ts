@@ -184,8 +184,10 @@ export const client = pgTable("Client", {
   email: varchar("email", { length: 255 }),
   contact_1: varchar("contact_1", { length: 255 }),
   relationship_1: varchar("relationship_1", { length: 255 }),
+  contact_1_phone: varchar("contact_1_phone", { length: 50 }),
   contact_2: varchar("contact_2", { length: 255 }),
   relationship_2: varchar("relationship_2", { length: 255 }),
+  contact_2_phone: varchar("contact_2_phone", { length: 50 }),
   notes: text("notes"),
   // Common fields for both client types
   county: varchar("county", { length: 255 }),

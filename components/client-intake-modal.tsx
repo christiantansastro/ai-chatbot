@@ -28,8 +28,10 @@ interface ClientFormData {
   email: string;
   contact_1: string;
   relationship_1: string;
+  contact_1_phone: string;
   contact_2: string;
   relationship_2: string;
+  contact_2_phone: string;
   notes: string;
   county: string;
   court_date: string;
@@ -97,8 +99,10 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     email: "",
     contact_1: "",
     relationship_1: "",
+    contact_1_phone: "",
     contact_2: "",
     relationship_2: "",
+    contact_2_phone: "",
     notes: "",
     county: "",
     court_date: "",
@@ -210,8 +214,10 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       if (formData.address) submissionData.address = formData.address;
       if (formData.contact_1) submissionData.contact_1 = formData.contact_1;
       if (formData.relationship_1) submissionData.relationship_1 = formData.relationship_1;
+      if (formData.contact_1_phone) submissionData.contact_1_phone = formData.contact_1_phone;
       if (formData.contact_2) submissionData.contact_2 = formData.contact_2;
       if (formData.relationship_2) submissionData.relationship_2 = formData.relationship_2;
+      if (formData.contact_2_phone) submissionData.contact_2_phone = formData.contact_2_phone;
       if (formData.notes) submissionData.notes = formData.notes;
       if (formData.county) submissionData.county = formData.county;
       if (formData.court_date) submissionData.court_date = formData.court_date;
@@ -271,8 +277,10 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             email: "",
             contact_1: "",
             relationship_1: "",
+            contact_1_phone: "",
             contact_2: "",
             relationship_2: "",
+            contact_2_phone: "",
             notes: "",
             county: "",
             court_date: "",
@@ -407,9 +415,9 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <Label htmlFor="contact_1">Emergency Contact 1</Label>
+          <Label htmlFor="contact_1">Alternate Contact 1</Label>
           <Input
             id="contact_1"
             value={formData.contact_1}
@@ -427,11 +435,21 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             placeholder="e.g., Spouse, Parent, Friend"
           />
         </div>
+
+        <div>
+          <Label htmlFor="contact_1_phone">Phone Number</Label>
+          <Input
+            id="contact_1_phone"
+            value={formData.contact_1_phone}
+            onChange={(e) => handleInputChange("contact_1_phone", e.target.value)}
+            placeholder="(555) 123-4567"
+          />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <Label htmlFor="contact_2">Emergency Contact 2</Label>
+          <Label htmlFor="contact_2">Alternate Contact 2</Label>
           <Input
             id="contact_2"
             value={formData.contact_2}
@@ -447,6 +465,16 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             value={formData.relationship_2}
             onChange={(e) => handleInputChange("relationship_2", e.target.value)}
             placeholder="e.g., Spouse, Parent, Friend"
+          />
+        </div>
+
+        <div>
+          <Label htmlFor="contact_2_phone">Phone Number</Label>
+          <Input
+            id="contact_2_phone"
+            value={formData.contact_2_phone}
+            onChange={(e) => handleInputChange("contact_2_phone", e.target.value)}
+            placeholder="(555) 123-4567"
           />
         </div>
       </div>
