@@ -44,6 +44,8 @@ RETURNS TABLE (
     quoted DECIMAL(10,2),
     initial_payment DECIMAL(10,2),
     due_date_balance DATE,
+    children_details TEXT,
+    previous_court_orders BOOLEAN,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -76,6 +78,8 @@ BEGIN
         c.quoted,
         c.initial_payment,
         c.due_date_balance,
+        c.children_details,
+        c.previous_court_orders,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -109,6 +113,8 @@ BEGIN
         OR (c.case_type IS NOT NULL AND LOWER(c.case_type) LIKE '%' || LOWER(search_query) || '%')
         -- Or charges match ( criminal clients)
         OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
+        -- Or children details match
+        OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
         -- Prioritize exact matches first
         CASE
@@ -156,6 +162,8 @@ RETURNS TABLE (
     quoted DECIMAL(10,2),
     initial_payment DECIMAL(10,2),
     due_date_balance DATE,
+    children_details TEXT,
+    previous_court_orders BOOLEAN,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -188,6 +196,8 @@ BEGIN
         c.quoted,
         c.initial_payment,
         c.due_date_balance,
+        c.children_details,
+        c.previous_court_orders,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -212,6 +222,8 @@ BEGIN
         OR (c.case_type IS NOT NULL AND LOWER(c.case_type) LIKE '%' || LOWER(search_query) || '%')
         -- Or charges matching ( criminal clients)
         OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
+        -- Or children details matching
+        OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
         -- Or notes matching
         OR (c.notes IS NOT NULL AND LOWER(c.notes) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY

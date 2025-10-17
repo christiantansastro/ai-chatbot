@@ -201,6 +201,10 @@ export const client = pgTable("Client", {
   // Civil-specific fields
   served_papers_or_initial_filing: text("served_papers_or_initial_filing"),
   case_type: varchar("case_type", { length: 255 }),
+  // Custody-specific fields
+  children_involved: boolean("children_involved"),
+  children_details: text("children_details"),
+  previous_court_orders: boolean("previous_court_orders"),
   createdAt: timestamp("createdAt").notNull(),
   updatedAt: timestamp("updatedAt").notNull(),
 });
