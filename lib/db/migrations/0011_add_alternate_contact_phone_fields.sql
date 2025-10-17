@@ -84,6 +84,8 @@ BEGIN
         c.previous_court_orders,
         c.other_side_name,
         c.other_side_relation,
+        c.other_side_represented_by_attorney,
+        c.other_side_contact_info,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -174,6 +176,8 @@ RETURNS TABLE (
     previous_court_orders BOOLEAN,
     other_side_name TEXT,
     other_side_relation TEXT,
+    other_side_represented_by_attorney BOOLEAN,
+    other_side_contact_info TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -240,6 +244,8 @@ BEGIN
         OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
         -- Or other side relation matching
         OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side contact info matching
+        OR (c.other_side_contact_info IS NOT NULL AND LOWER(c.other_side_contact_info) LIKE '%' || LOWER(search_query) || '%')
         -- Or notes matching
         OR (c.notes IS NOT NULL AND LOWER(c.notes) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
