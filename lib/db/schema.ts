@@ -201,6 +201,8 @@ export const client = pgTable("Client", {
   // Civil-specific fields
   served_papers_or_initial_filing: text("served_papers_or_initial_filing"),
   case_type: varchar("case_type", { length: 255 }),
+  other_side_name: varchar("other_side_name", { length: 255 }),
+  other_side_relation: varchar("other_side_relation", { length: 255 }),
   // Custody-specific fields
   children_involved: boolean("children_involved"),
   children_details: text("children_details"),

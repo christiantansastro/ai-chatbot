@@ -46,6 +46,8 @@ RETURNS TABLE (
     due_date_balance DATE,
     children_details TEXT,
     previous_court_orders BOOLEAN,
+    other_side_name TEXT,
+    other_side_relation TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -80,6 +82,8 @@ BEGIN
         c.due_date_balance,
         c.children_details,
         c.previous_court_orders,
+        c.other_side_name,
+        c.other_side_relation,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -115,6 +119,10 @@ BEGIN
         OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
         -- Or children details match
         OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side name match
+        OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side relation match
+        OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
         -- Prioritize exact matches first
         CASE
@@ -164,6 +172,8 @@ RETURNS TABLE (
     due_date_balance DATE,
     children_details TEXT,
     previous_court_orders BOOLEAN,
+    other_side_name TEXT,
+    other_side_relation TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -198,6 +208,8 @@ BEGIN
         c.due_date_balance,
         c.children_details,
         c.previous_court_orders,
+        c.other_side_name,
+        c.other_side_relation,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -224,6 +236,10 @@ BEGIN
         OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
         -- Or children details matching
         OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side name matching
+        OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side relation matching
+        OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
         -- Or notes matching
         OR (c.notes IS NOT NULL AND LOWER(c.notes) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
