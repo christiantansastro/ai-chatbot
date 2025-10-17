@@ -229,7 +229,7 @@ export const queryClients = tool({
         const { data: preciseData, error: preciseError } = await supabase
           .rpc('search_clients_precise', {
             search_query: query,
-            similarity_threshold: 0.6, // Higher threshold for more precise matches
+            similarity_threshold: 0.3, // Lower threshold for better matching
             max_results: limit
           });
 
@@ -271,11 +271,11 @@ export const queryClients = tool({
       try {
         console.log('🔍 CLIENT QUERY TOOL: Trying direct text-based search...');
 
-        // First, try to find exact matches
+        // First, try to find matches with proper wildcard support (expanded search)
         const { data: exactData, error: exactError } = await supabase
           .from('clients')
           .select('client_name, email, phone, address, contact_1, relationship_1, contact_2, relationship_2, notes, date_intake, date_of_birth, created_at, updated_at')
-          .or(`client_name.ilike.${query},email.ilike.${query},phone.ilike.${query}`)
+          .or(`client_name.ilike.${searchTerm},email.ilike.${searchTerm},phone.ilike.${searchTerm},contact_1.ilike.${searchTerm},contact_2.ilike.${searchTerm},address.ilike.${searchTerm}`)
           .order('client_name');
 
         // Then, try partial matches if no exact matches found
