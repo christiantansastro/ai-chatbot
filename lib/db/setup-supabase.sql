@@ -356,7 +356,7 @@ CREATE OR REPLACE FUNCTION search_clients_precise(
 )
 RETURNS TABLE (
     client_name TEXT,
-    date_intake DATE NOT NULL DEFAULT CURRENT_DATE,
+    date_intake DATE,
     date_of_birth DATE,
     address TEXT,
     phone TEXT,
@@ -513,3 +513,10 @@ WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Robert Wilson');
 INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
 SELECT 'Lisa Anderson', 'civil', '2025-08-28', '1987-07-18', '987 Design Studio St, Arts District, CA 90210', '777888999', 'lisa@designstudio.com', 'Tom Anderson', 'Husband', NULL, NULL, 'Creative professional, values detailed proposals', 'Los Angeles County', 'Initial filing', 'Child Custody', '2025-12-15', '4000.00', '1200.00', '2025-12-10'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Lisa Anderson');
+
+-- Test client for partial name matching
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, arrested, charges, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Todd Jones', 'criminal', '2025-09-20', '1982-03-15', '123 Oak Street, Springfield, IL 62701', '2175550123', 'todd.jones@email.com', 'Mary Jones', 'Wife', 'John Jones', 'Brother', 'Test client for partial name search functionality', 'Sangamon County', true, 'Theft, Burglary', '2025-11-05', '3500.00', '700.00', '2025-10-25'
+WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Todd Jones');
+-- Verification query - you can run this separately to check if Todd Jones exists
+-- SELECT client_name FROM clients WHERE client_name ILIKE '%Todd%';

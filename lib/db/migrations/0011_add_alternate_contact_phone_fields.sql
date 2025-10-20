@@ -44,6 +44,10 @@ RETURNS TABLE (
     quoted DECIMAL(10,2),
     initial_payment DECIMAL(10,2),
     due_date_balance DATE,
+    children_details TEXT,
+    previous_court_orders BOOLEAN,
+    other_side_name TEXT,
+    other_side_relation TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -76,6 +80,12 @@ BEGIN
         c.quoted,
         c.initial_payment,
         c.due_date_balance,
+        c.children_details,
+        c.previous_court_orders,
+        c.other_side_name,
+        c.other_side_relation,
+        c.other_side_represented_by_attorney,
+        c.other_side_contact_info,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -85,6 +95,33 @@ BEGIN
         (c.client_name IS NOT NULL AND LOWER(c.client_name) = LOWER(search_query))
         -- Or fuzzy name match with high similarity
         OR (c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > similarity_threshold)
+<<<<<<< HEAD
+=======
+        -- Or email match
+        OR (c.email IS NOT NULL AND similarity(c.email, search_query) > similarity_threshold)
+        -- Or phone match
+        OR (c.phone IS NOT NULL AND similarity(c.phone, search_query) > similarity_threshold)
+        -- Or alternate contact phone match
+        OR (c.contact_1_phone IS NOT NULL AND similarity(c.contact_1_phone, search_query) > similarity_threshold)
+        OR (c.contact_2_phone IS NOT NULL AND similarity(c.contact_2_phone, search_query) > similarity_threshold)
+        -- Or contact match
+        OR (c.contact_1 IS NOT NULL AND similarity(c.contact_1, search_query) > similarity_threshold)
+        OR (c.contact_2 IS NOT NULL AND similarity(c.contact_2, search_query) > similarity_threshold)
+        -- Or address contains the search term
+        OR (c.address IS NOT NULL AND LOWER(c.address) LIKE '%' || LOWER(search_query) || '%')
+        -- Or county match
+        OR (c.county IS NOT NULL AND LOWER(c.county) LIKE '%' || LOWER(search_query) || '%')
+        -- Or case type match (civil clients)
+        OR (c.case_type IS NOT NULL AND LOWER(c.case_type) LIKE '%' || LOWER(search_query) || '%')
+        -- Or charges match ( criminal clients)
+        OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
+        -- Or children details match
+        OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side name match
+        OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side relation match
+        OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
+>>>>>>> f131c1d8e8a9472dcd5d9f9f3660d1e82a457e46
     ORDER BY
         -- Prioritize exact name matches first
         CASE
@@ -128,6 +165,12 @@ RETURNS TABLE (
     quoted DECIMAL(10,2),
     initial_payment DECIMAL(10,2),
     due_date_balance DATE,
+    children_details TEXT,
+    previous_court_orders BOOLEAN,
+    other_side_name TEXT,
+    other_side_relation TEXT,
+    other_side_represented_by_attorney BOOLEAN,
+    other_side_contact_info TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -160,6 +203,10 @@ BEGIN
         c.quoted,
         c.initial_payment,
         c.due_date_balance,
+        c.children_details,
+        c.previous_court_orders,
+        c.other_side_name,
+        c.other_side_relation,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -184,6 +231,14 @@ BEGIN
         OR (c.case_type IS NOT NULL AND LOWER(c.case_type) LIKE '%' || LOWER(search_query) || '%')
         -- Or charges matching ( criminal clients)
         OR (c.charges IS NOT NULL AND LOWER(c.charges) LIKE '%' || LOWER(search_query) || '%')
+        -- Or children details matching
+        OR (c.children_details IS NOT NULL AND LOWER(c.children_details) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side name matching
+        OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side relation matching
+        OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
+        -- Or other side contact info matching
+        OR (c.other_side_contact_info IS NOT NULL AND LOWER(c.other_side_contact_info) LIKE '%' || LOWER(search_query) || '%')
         -- Or notes matching
         OR (c.notes IS NOT NULL AND LOWER(c.notes) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
