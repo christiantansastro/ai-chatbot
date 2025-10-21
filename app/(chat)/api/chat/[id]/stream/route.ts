@@ -17,7 +17,15 @@ export async function GET(
 ) {
   const { id: chatId } = await params;
 
-  const streamContext = getStreamContext();
+  type StreamContext = {
+    resumableStream: (
+      id: string,
+      fallback: () => ReadableStream
+    ) => Promise<ReadableStream | null>;
+  } | null;
+
+  const streamContext = getStreamContext() as StreamContext;
+
   const resumeRequestedAt = new Date();
 
   if (!streamContext) {
