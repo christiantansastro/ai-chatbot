@@ -4,6 +4,113 @@
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config({ path: '.env.local' });
 
+// SQL to fix the type mismatch in search_clients_precise function
+const fixPreciseSearchSQL = `
+-- Fix type mismatch: change TEXT to VARCHAR(50) for phone fields
+CREATE OR REPLACE FUNCTION search_clients_precise(
+    search_query TEXT,
+    similarity_threshold FLOAT DEFAULT 0.6,
+    max_results INTEGER DEFAULT 10
+)
+RETURNS TABLE (
+    id UUID,
+    client_name TEXT,
+    client_type TEXT,
+    county TEXT,
+    date_intake DATE,
+    date_of_birth DATE,
+    address TEXT,
+    phone TEXT,
+    email TEXT,
+    contact_1 TEXT,
+    relationship_1 TEXT,
+    contact_1_phone VARCHAR(50),
+    contact_2 TEXT,
+    relationship_2 TEXT,
+    contact_2_phone VARCHAR(50),
+    notes TEXT,
+    arrested BOOLEAN,
+    charges TEXT,
+    served_papers_or_initial_filing TEXT,
+    case_type TEXT,
+    court_date DATE,
+    quoted DECIMAL(10,2),
+    initial_payment DECIMAL(10,2),
+    due_date_balance DATE,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        c.id,
+        c.client_name,
+        c.client_type,
+        c.county,
+        c.date_intake,
+        c.date_of_birth,
+        c.address,
+        c.phone,
+        c.email,
+        c.contact_1,
+        c.relationship_1,
+        c.contact_1_phone,
+        c.contact_2,
+        c.relationship_2,
+        c.contact_2_phone,
+        c.notes,
+        c.arrested,
+        c.charges,
+        c.served_papers_or_initial_filing,
+        c.case_type,
+        c.court_date,
+        c.quoted,
+        c.initial_payment,
+        c.due_date_balance,
+        c.created_at,
+        c.updated_at
+    FROM clients c
+    WHERE
+        -- Only search in client_name field
+        -- Exact name match (highest priority) - case insensitive
+        (c.client_name IS NOT NULL AND LOWER(c.client_name) = LOWER(search_query))
+        -- Or fuzzy name match with high similarity
+        OR (c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > similarity_threshold)
+    ORDER BY
+        -- Prioritize exact name matches first
+        CASE
+            WHEN LOWER(c.client_name) = LOWER(search_query) THEN 1
+            WHEN c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > 0.8 THEN 2
+            ELSE 3
+        END,
+        -- Then by name alphabetically for same priority matches
+        c.client_name
+    LIMIT max_results;
+END;
+$$;
+`;
+
+async function fixDatabaseFunction(supabase) {
+  console.log('🔧 Fixing database function type mismatch...');
+
+  try {
+    // Since exec_sql doesn't exist, we'll provide manual instructions
+    console.log('📋 To fix the RPC function, run this SQL in your Supabase dashboard:');
+    console.log('📋 SQL Editor > New Query > Paste the following:');
+    console.log('');
+    console.log(fixPreciseSearchSQL);
+    console.log('');
+    console.log('✅ After running this SQL, the search_clients_precise function will work correctly');
+
+    return true;
+  } catch (err) {
+    console.error('❌ Error with function fix:', err.message);
+    return false;
+  }
+}
+
 async function testClientQueries() {
   console.log('🧪 Starting Client Query Tests...\n');
 
@@ -21,6 +128,9 @@ async function testClientQueries() {
   console.log('✅ Environment variables loaded');
 
   const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // Show the SQL fix for the database function
+  await fixDatabaseFunction(supabase);
 
   try {
     // Test 1: Basic connectivity
@@ -79,19 +189,19 @@ async function testClientQueries() {
       console.log('   4. Permission issues');
     }
 
-    // Test 2: Search for John Smith
-    console.log('\n🔍 Test 2: Searching for "John Smith"...');
-    const { data: johnResults, error: johnError } = await supabase
+    // Test 2: Search for existing clients
+    console.log('\n🔍 Test 2: Searching for "Mason E. Smith"...');
+    const { data: masonResults, error: masonError } = await supabase
       .from('clients')
       .select('client_name, email, phone, address, contact_1, relationship_1, notes')
-      .ilike('client_name', '%john smith%');
+      .ilike('client_name', '%mason%');
 
-    if (johnError) {
-      console.error('❌ Search failed:', johnError.message);
+    if (masonError) {
+      console.error('❌ Search failed:', masonError.message);
     } else {
-      console.log(`✅ Found ${johnResults?.length || 0} results for "John Smith"`);
-      if (johnResults && johnResults.length > 0) {
-        johnResults.forEach((client, index) => {
+      console.log(`✅ Found ${masonResults?.length || 0} results for "Mason"`);
+      if (masonResults && masonResults.length > 0) {
+        masonResults.forEach((client, index) => {
           console.log(`   ${index + 1}. ${client.client_name} - ${client.email} (${client.phone})`);
           console.log(`      Address: ${client.address || 'No address'}`);
           console.log(`      Contact: ${client.contact_1 || 'No contact'} (${client.relationship_1 || 'No relationship'})`);
@@ -99,40 +209,121 @@ async function testClientQueries() {
       }
     }
 
-    // Test 3: Fuzzy search function (if available)
-    console.log('\n🔍 Test 3: Testing fuzzy search function...');
+    // Test 2b: Search for "Todd Jones"
+    console.log('\n🔍 Test 2b: Searching for "Todd Jones"...');
+    const { data: toddResults, error: toddError } = await supabase
+      .from('clients')
+      .select('client_name, email, phone, address, contact_1, relationship_1, notes')
+      .ilike('client_name', '%todd%');
+
+    if (toddError) {
+      console.error('❌ Search failed:', toddError.message);
+    } else {
+      console.log(`✅ Found ${toddResults?.length || 0} results for "Todd"`);
+      if (toddResults && toddResults.length > 0) {
+        toddResults.forEach((client, index) => {
+          console.log(`   ${index + 1}. ${client.client_name} - ${client.email} (${client.phone})`);
+        });
+      }
+    }
+
+    // Test 3: Test search_clients_precise function
+    console.log('\n🔍 Test 3: Testing search_clients_precise function...');
     try {
-      const { data: fuzzyResults, error: fuzzyError } = await supabase
-        .rpc('search_clients_fuzzy', {
-          search_query: 'john smith',
+      // Try with lower similarity threshold first
+      const { data: preciseResults, error: preciseError } = await supabase
+        .rpc('search_clients_precise', {
+          search_query: 'Mason',
+          similarity_threshold: 0.3,
           max_results: 5
         });
 
-      if (fuzzyError) {
-        console.log('⚠️ Fuzzy search not available:', fuzzyError.message);
+      if (preciseError) {
+        console.log('⚠️ Precise search not available:', preciseError.message);
       } else {
-        console.log(`✅ Fuzzy search found ${fuzzyResults?.length || 0} results`);
-        if (fuzzyResults && fuzzyResults.length > 0) {
-          fuzzyResults.forEach((client, index) => {
-            console.log(`   ${index + 1}. ${client.client_name} - ${client.email}`);
+        console.log(`✅ Precise search found ${preciseResults?.length || 0} results`);
+        if (preciseResults && preciseResults.length > 0) {
+          preciseResults.forEach((client, index) => {
+            console.log(`   ${index + 1}. ${client.client_name} - ${client.email} (${client.phone})`);
+          });
+        } else {
+          console.log('   No results found with threshold 0.3, trying exact match...');
+          // Try exact match for "Mason E. Smith"
+          const { data: exactResults, error: exactError } = await supabase
+            .rpc('search_clients_precise', {
+              search_query: 'Mason E. Smith',
+              similarity_threshold: 0.1,
+              max_results: 5
+            });
+
+          if (!exactError && exactResults && exactResults.length > 0) {
+            console.log(`✅ Found exact match: ${exactResults[0].client_name}`);
+          } else {
+            console.log('❌ Even exact match failed');
+          }
+        }
+      }
+    } catch (preciseErr) {
+      console.log('⚠️ Precise search function not available');
+    }
+
+    // Test 3b: Test search_clients_basic function
+    console.log('\n🔍 Test 3b: Testing search_clients_basic function...');
+    try {
+      const { data: basicResults, error: basicError } = await supabase
+        .rpc('search_clients_basic', {
+          search_query: 'Todd',
+          max_results: 5
+        });
+
+      if (basicError) {
+        console.log('⚠️ Basic search not available:', basicError.message);
+      } else {
+        console.log(`✅ Basic search found ${basicResults?.length || 0} results`);
+        if (basicResults && basicResults.length > 0) {
+          basicResults.forEach((client, index) => {
+            console.log(`   ${index + 1}. ${client.client_name} - ${client.email} (${client.phone})`);
           });
         }
       }
-    } catch (fuzzyErr) {
-      console.log('⚠️ Fuzzy search function not available');
+    } catch (basicErr) {
+      console.log('⚠️ Basic search function not available');
     }
 
-    // Test 4: Test with partial name
-    console.log('\n🔍 Test 4: Searching for "john"...');
-    const { data: partialResults, error: partialError } = await supabase
+    // Test 4: Searching for "Jeremy" (test the specific issue)
+    console.log('\n🔍 Test 4: Searching for "Jeremy"...');
+    const { data: jeremyResults, error: jeremyError } = await supabase
       .from('clients')
       .select('client_name, email, phone, address, contact_1, relationship_1, notes')
-      .ilike('client_name', '%john%');
+      .ilike('client_name', '%jeremy%');
 
-    if (partialError) {
-      console.error('❌ Partial search failed:', partialError.message);
+    if (jeremyError) {
+      console.error('❌ Jeremy search failed:', jeremyError.message);
     } else {
-      console.log(`✅ Found ${partialResults?.length || 0} results for "john"`);
+      console.log(`✅ Found ${jeremyResults?.length || 0} results for "Jeremy"`);
+      if (jeremyResults && jeremyResults.length > 0) {
+        jeremyResults.forEach((client, index) => {
+          console.log(`   ${index + 1}. ${client.client_name} - ${client.email} (${client.phone})`);
+        });
+      }
+    }
+
+    // Test 4b: Test search for just "Nunez" to see if it finds both Jeremy and Irma
+    console.log('\n🔍 Test 4b: Searching for "Nunez"...');
+    const { data: nunezResults, error: nunezError } = await supabase
+      .from('clients')
+      .select('client_name, email, phone')
+      .ilike('client_name', '%nunez%');
+
+    if (nunezError) {
+      console.error('❌ Nunez search failed:', nunezError.message);
+    } else {
+      console.log(`✅ Found ${nunezResults?.length || 0} results for "Nunez"`);
+      if (nunezResults && nunezResults.length > 0) {
+        nunezResults.forEach((client, index) => {
+          console.log(`   ${index + 1}. ${client.client_name} - ${client.email}`);
+        });
+      }
     }
 
     // Test 5: Check if sample data exists

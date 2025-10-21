@@ -90,17 +90,13 @@ BEGIN
         c.updated_at
     FROM clients c
     WHERE
+        -- Only search in client_name field
         -- Exact name match (highest priority) - case insensitive
         (c.client_name IS NOT NULL AND LOWER(c.client_name) = LOWER(search_query))
-        -- Or exact email match
-        OR (c.email IS NOT NULL AND LOWER(c.email) = LOWER(search_query))
-        -- Or exact phone match
-        OR (c.phone IS NOT NULL AND LOWER(c.phone) = LOWER(search_query))
-        -- Or exact alternate contact phone match
-        OR (c.contact_1_phone IS NOT NULL AND LOWER(c.contact_1_phone) = LOWER(search_query))
-        OR (c.contact_2_phone IS NOT NULL AND LOWER(c.contact_2_phone) = LOWER(search_query))
-        -- Or fuzzy name match with high similarity (only if no exact match found)
+        -- Or fuzzy name match with high similarity
         OR (c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > similarity_threshold)
+<<<<<<< HEAD
+=======
         -- Or email match
         OR (c.email IS NOT NULL AND similarity(c.email, search_query) > similarity_threshold)
         -- Or phone match
@@ -125,16 +121,13 @@ BEGIN
         OR (c.other_side_name IS NOT NULL AND LOWER(c.other_side_name) LIKE '%' || LOWER(search_query) || '%')
         -- Or other side relation match
         OR (c.other_side_relation IS NOT NULL AND LOWER(c.other_side_relation) LIKE '%' || LOWER(search_query) || '%')
+>>>>>>> f131c1d8e8a9472dcd5d9f9f3660d1e82a457e46
     ORDER BY
-        -- Prioritize exact matches first
+        -- Prioritize exact name matches first
         CASE
             WHEN LOWER(c.client_name) = LOWER(search_query) THEN 1
-            WHEN LOWER(c.email) = LOWER(search_query) THEN 2
-            WHEN LOWER(c.phone) = LOWER(search_query) THEN 3
-            WHEN LOWER(c.contact_1_phone) = LOWER(search_query) THEN 4
-            WHEN LOWER(c.contact_2_phone) = LOWER(search_query) THEN 5
-            WHEN c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > 0.8 THEN 6
-            ELSE 7
+            WHEN c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > 0.8 THEN 2
+            ELSE 3
         END,
         -- Then by name alphabetically for same priority matches
         c.client_name
@@ -159,10 +152,10 @@ RETURNS TABLE (
     email TEXT,
     contact_1 TEXT,
     relationship_1 TEXT,
-    contact_1_phone TEXT,
+    contact_1_phone VARCHAR(50),
     contact_2 TEXT,
     relationship_2 TEXT,
-    contact_2_phone TEXT,
+    contact_2_phone VARCHAR(50),
     notes TEXT,
     arrested BOOLEAN,
     charges TEXT,

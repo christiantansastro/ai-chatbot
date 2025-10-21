@@ -104,6 +104,67 @@ export function DataStreamHandler() {
   const { artifact, setArtifact, setMetadata } = useArtifact();
   const lastProcessedIndex = useRef(-1);
 
+  const applyArtifactDelta = (current: UIArtifact, delta: any): UIArtifact => {
+    const base = current ?? { ...initialArtifactData };
+    let next: UIArtifact = { ...base };
+
+    switch (delta.type) {
+      case "data-id":
+        next = {
+          ...next,
+          documentId: delta.data,
+          status: "streaming",
+        };
+        break;
+      case "data-title":
+        next = {
+          ...next,
+          title: delta.data,
+          status: "streaming",
+        };
+        break;
+      case "data-kind":
+        next = {
+          ...next,
+          kind: delta.data,
+          status: "streaming",
+        };
+        break;
+      case "data-clear":
+        next = {
+          ...next,
+          content: "",
+          status: "streaming",
+        };
+        break;
+      case "data-finish":
+        if (next.kind === "financial-statement") {
+          next = {
+            ...next,
+            status: "idle",
+            isVisible: false,
+          };
+        } else if (next.kind === "client-report") {
+          next = {
+            ...next,
+            status: "idle",
+            isVisible: false,
+          };
+        } else {
+          next = {
+            ...next,
+            status: "idle",
+            isVisible: true,
+          };
+        }
+        break;
+      default:
+        break;
+    }
+
+    return next;
+  };
+
   useEffect(() => {
     if (!dataStream?.length) {
       return;
@@ -112,153 +173,47 @@ export function DataStreamHandler() {
     const newDeltas = dataStream.slice(lastProcessedIndex.current + 1);
     lastProcessedIndex.current = dataStream.length - 1;
 
+    let currentArtifactState = {
+      ...(artifact ?? initialArtifactData),
+    };
+
     for (const delta of newDeltas) {
-      console.log('🔍 DATASTREAM DEBUG: Processing delta:', delta);
+      const nextArtifactState = applyArtifactDelta(currentArtifactState, delta);
 
-      // Update artifact state based on delta type
-      setArtifact((draftArtifact) => {
-        if (!draftArtifact) {
-          return { ...initialArtifactData, status: "streaming" };
+      if (delta.type === "data-finish") {
+        if (currentArtifactState.kind === "financial-statement") {
+          toast.success("Financial statement generated! Click to download.", {
+            action: {
+              label: "Download",
+              onClick: () => {
+                downloadFinancialStatement(
+                  currentArtifactState.content,
+                  currentArtifactState.title
+                );
+              },
+            },
+          });
+        } else if (currentArtifactState.kind === "client-report") {
+          // Intentionally no toast; download option appears in chat UI
         }
+      }
 
-        let updatedArtifact: UIArtifact;
-        switch (delta.type) {
-          case "data-id":
-            updatedArtifact = {
-              ...draftArtifact,
-              documentId: delta.data,
-              status: "streaming" as const,
-            };
-            break;
+      setArtifact(nextArtifactState);
+      currentArtifactState = nextArtifactState;
 
-          case "data-title":
-            updatedArtifact = {
-              ...draftArtifact,
-              title: delta.data,
-              status: "streaming" as const,
-            };
-            break;
-
-          case "data-kind":
-            updatedArtifact = {
-              ...draftArtifact,
-              kind: delta.data,
-              status: "streaming" as const,
-            };
-            break;
-
-          case "data-clear":
-            updatedArtifact = {
-              ...draftArtifact,
-              content: "",
-              status: "streaming" as const,
-            };
-            break;
-
-          case "data-finish":
-            // For financial statements and client reports, don't open the artifact panel, just trigger download
-            if (draftArtifact.kind === "financial-statement") {
-              updatedArtifact = {
-                ...draftArtifact,
-                status: "idle" as const,
-                isVisible: false, // Don't show the artifact panel
-              };
-
-              // Show toast notification
-              toast.success("Financial statement generated! Click to download.", {
-                action: {
-                  label: "Download",
-                  onClick: () => {
-                    // Trigger download
-                    downloadFinancialStatement(draftArtifact.content, draftArtifact.title);
-                  },
-                },
-              });
-            } else if (draftArtifact.kind === "client-report") {
-              updatedArtifact = {
-                ...draftArtifact,
-                status: "idle" as const,
-                isVisible: false, // Don't show the artifact panel
-              };
-
-              // Don't show toast - download button will be shown in chat message
-            } else {
-              updatedArtifact = {
-                ...draftArtifact,
-                status: "idle" as const,
-                isVisible: true, // Make sure artifact is visible when finished for other types
-              };
-            }
-            break;
-
-          default:
-            updatedArtifact = draftArtifact;
-        }
-
-        console.log('🔍 DATASTREAM DEBUG: Artifact state updated:', updatedArtifact);
-        return updatedArtifact;
-      });
-
-      // Now find the artifact definition with updated artifact state
-      const currentArtifact = artifactDefinitions.find(
-        (currentArtifactDefinition) =>
-          currentArtifactDefinition.kind === (delta.type === "data-kind" ? delta.data : artifact.kind)
+      const currentArtifactDefinition = artifactDefinitions.find(
+        (definition) => definition.kind === nextArtifactState.kind
       );
 
-      if (currentArtifact?.onStreamPart) {
-        currentArtifact.onStreamPart({
+      if (currentArtifactDefinition?.onStreamPart) {
+        currentArtifactDefinition.onStreamPart({
           streamPart: delta,
           setArtifact,
           setMetadata,
         });
       }
-
-      setArtifact((draftArtifact) => {
-        if (!draftArtifact) {
-          return { ...initialArtifactData, status: "streaming" };
-        }
-
-        switch (delta.type) {
-          case "data-id":
-            return {
-              ...draftArtifact,
-              documentId: delta.data,
-              status: "streaming",
-            };
-
-          case "data-title":
-            return {
-              ...draftArtifact,
-              title: delta.data,
-              status: "streaming",
-            };
-
-          case "data-kind":
-            return {
-              ...draftArtifact,
-              kind: delta.data,
-              status: "streaming",
-            };
-
-          case "data-clear":
-            return {
-              ...draftArtifact,
-              content: "",
-              status: "streaming",
-            };
-
-          case "data-finish":
-            return {
-              ...draftArtifact,
-              status: "idle",
-            };
-
-          default:
-            return draftArtifact;
-        }
-      });
     }
-  }, [dataStream, setArtifact, setMetadata, artifact]);
+  }, [artifact, dataStream, setArtifact, setMetadata]);
 
   return null;
 }

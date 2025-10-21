@@ -1,7 +1,7 @@
 "use client";
 
 import type { UseChatHelpers } from "@ai-sdk/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useDataStream } from "@/components/data-stream-provider";
 import type { ChatMessage } from "@/lib/types";
 
@@ -19,6 +19,7 @@ export function useAutoResume({
   setMessages,
 }: UseAutoResumeParams) {
   const { dataStream } = useDataStream();
+  const lastAppendedMessageIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!autoResume) {
@@ -33,21 +34,28 @@ export function useAutoResume({
 
     // we intentionally run this once
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoResume, initialMessages.at, resumeStream]);
+  }, [autoResume, initialMessages, resumeStream]);
 
   useEffect(() => {
-    if (!dataStream) {
-      return;
-    }
-    if (dataStream.length === 0) {
+    if (!dataStream?.length) {
       return;
     }
 
-    const dataPart = dataStream[0];
+    const latestAppend = [...dataStream]
+      .reverse()
+      .find((part) => part.type === "data-appendMessage");
 
-    if (dataPart.type === "data-appendMessage") {
-      const message = JSON.parse(dataPart.data);
-      setMessages([...initialMessages, message]);
+    if (!latestAppend) {
+      return;
     }
-  }, [dataStream, initialMessages, setMessages]);
+
+    const message = JSON.parse(latestAppend.data);
+
+    if (!message?.id || message.id === lastAppendedMessageIdRef.current) {
+      return;
+    }
+
+    lastAppendedMessageIdRef.current = message.id;
+    setMessages((previousMessages) => [...previousMessages, message]);
+  }, [dataStream, setMessages]);
 }

@@ -252,7 +252,6 @@ export async function saveDocument({
   userId: string;
 }) {
   try {
-    console.log('📄 DB QUERIES: Saving document', { id, title, kind, contentLength: content.length, userId });
     const result = await databaseService.saveDocument({
       id,
       title,
@@ -261,7 +260,6 @@ export async function saveDocument({
       userId,
       createdAt: new Date()
     });
-    console.log('📄 DB QUERIES: Document saved successfully');
     return result;
   } catch (error) {
     console.error('📄 DB QUERIES: Failed to save document:', error);
@@ -447,22 +445,18 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
 // Test function to verify database operations
 export async function testDatabaseOperations(userId: string) {
   try {
-    console.log('=== TESTING DATABASE OPERATIONS ===');
 
     // Initialize database service if not already initialized
     try {
       const { databaseService, DatabaseConfigLoader } = await import("./database-factory");
       const config = DatabaseConfigLoader.loadFromEnvironment();
       await databaseService.initialize(config);
-      console.log('Database service initialized for test');
     } catch (initError) {
-      console.log('Database service initialization:', initError);
     }
 
     // Test if we can access the database service
     const healthCheck = await databaseService.healthCheck();
     if (healthCheck.status !== 'healthy') {
-      console.log('Health check failed:', healthCheck);
       throw new Error(`Database not healthy: ${healthCheck.details.error}`);
     }
 
@@ -470,11 +464,8 @@ export async function testDatabaseOperations(userId: string) {
     const adapter = (databaseService as any).getAdapter();
     if (adapter && typeof adapter.testChatInsert === 'function') {
       const result = await adapter.testChatInsert(userId);
-      console.log('Test result:', result);
       return result;
     } else {
-      console.log('Adapter:', adapter);
-      console.log('Available methods:', adapter ? Object.getOwnPropertyNames(adapter) : 'No adapter');
       throw new Error('Test function not available on adapter');
     }
   } catch (error) {
