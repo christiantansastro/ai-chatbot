@@ -476,6 +476,108 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
     }
   }
 
+  // File operations
+  async createFileRecord(fileData: any): Promise<any> {
+    try {
+      const result = await this.db
+        .insert(files)
+        .values({
+          id: fileData.id,
+          clientName: fileData.clientName,
+          fileName: fileData.fileName,
+          fileType: fileData.fileType,
+          fileSize: fileData.fileSize,
+          fileUrl: fileData.fileUrl,
+          uploadTimestamp: fileData.uploadTimestamp,
+          tempQueueId: fileData.tempQueueId,
+          status: fileData.status,
+          createdAt: fileData.createdAt,
+          updatedAt: fileData.updatedAt
+        })
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      throw new DatabaseError('Failed to create file record', error);
+    }
+  }
+
+  async getFilesByClientId(clientId: string): Promise<any[]> {
+    try {
+      const result = await this.db
+        .select()
+        .from(files)
+        .where(eq(files.clientName, clientId)) // Search by clientName instead of clientId
+        .orderBy(desc(files.createdAt));
+
+      return result;
+    } catch (error) {
+      throw new DatabaseError('Failed to get files by client name', error);
+    }
+  }
+
+  async getFilesByTempQueueId(tempQueueId: string): Promise<any[]> {
+    try {
+      const result = await this.db
+        .select()
+        .from(files)
+        .where(eq(files.tempQueueId, tempQueueId))
+        .orderBy(desc(files.createdAt));
+
+      return result;
+    } catch (error) {
+      throw new DatabaseError('Failed to get files by temp queue ID', error);
+    }
+  }
+
+  async updateFileStatus(fileId: string, status: 'assigned' | 'temp_queue' | 'error', clientName?: string): Promise<any> {
+    try {
+      const updateData: any = {
+        status,
+        updatedAt: new Date()
+      };
+
+      if (clientName) {
+        updateData.clientName = clientName;
+      }
+
+      const result = await this.db
+        .update(files)
+        .set(updateData)
+        .where(eq(files.id, fileId))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      throw new DatabaseError('Failed to update file status', error);
+    }
+  }
+
+  async deleteFileRecord(fileId: string): Promise<any> {
+    try {
+      const result = await this.db
+        .delete(files)
+        .where(eq(files.id, fileId))
+        .returning();
+
+      return result[0];
+    } catch (error) {
+      throw new DatabaseError('Failed to delete file record', error);
+    }
+  }
+
+  async createTempQueue(): Promise<{ id: string }> {
+    try {
+      // For simplicity, we'll use a UUID as temp queue ID
+      // In a real implementation, you might want a separate temp_queues table
+      const tempQueueId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      return { id: tempQueueId };
+    } catch (error) {
+      throw new DatabaseError('Failed to create temp queue', error);
+    }
+  }
+
   // Utility operations
   async getMessageCountByUserId(userId: string, hours: number): Promise<number> {
     try {
@@ -566,7 +668,8 @@ import {
   vote,
   document,
   suggestion,
-  stream
+  stream,
+  files
 } from '../schema';
 
 import {

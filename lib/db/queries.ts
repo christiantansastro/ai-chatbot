@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { ArtifactKind } from "@/components/artifact";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { ChatSDKError } from "../errors";
@@ -62,6 +60,20 @@ interface Suggestion {
   isResolved: boolean;
   userId: string;
   createdAt: Date;
+}
+
+interface FileRecord {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileUrl: string;
+  uploadTimestamp: Date;
+  uploaderUserId?: string; // Made optional since column was removed
+  tempQueueId?: string;
+  status: 'assigned' | 'temp_queue' | 'error';
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export async function getUser(email: string): Promise<User[]> {
@@ -439,6 +451,85 @@ export async function getStreamIdsByChatId({ chatId }: { chatId: string }) {
       "bad_request:database",
       "Failed to get stream ids by chat id"
     );
+  }
+}
+
+// File operations
+export async function createFileRecord(fileData: {
+  id: string;
+  clientName?: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileUrl: string;
+  uploaderUserId?: string; // Made optional
+  tempQueueId?: string;
+  status?: 'assigned' | 'temp_queue' | 'error';
+}) {
+  try {
+    return await databaseService.createFileRecord({
+      ...fileData,
+      uploadTimestamp: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      status: fileData.status || 'assigned',
+    });
+  } catch (error) {
+    console.error('Failed to create file record:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to create file record");
+  }
+}
+
+export async function getFilesByClientId({ clientId }: { clientId: string }) {
+  try {
+    return await databaseService.getFilesByClientId(clientId);
+  } catch (error) {
+    console.error('Failed to get files by client name:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to get files by client name");
+  }
+}
+
+export async function getFilesByTempQueueId({ tempQueueId }: { tempQueueId: string }) {
+  try {
+    return await databaseService.getFilesByTempQueueId(tempQueueId);
+  } catch (error) {
+    console.error('Failed to get files by temp queue ID:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to get files by temp queue ID");
+  }
+}
+
+export async function updateFileStatus({
+  fileId,
+  status,
+  clientName,
+}: {
+  fileId: string;
+  status: 'assigned' | 'temp_queue' | 'error';
+  clientName?: string;
+}) {
+  try {
+    return await databaseService.updateFileStatus(fileId, status, clientName);
+  } catch (error) {
+    console.error('Failed to update file status:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to update file status");
+  }
+}
+
+export async function deleteFileRecord({ fileId }: { fileId: string }) {
+  try {
+    return await databaseService.deleteFileRecord(fileId);
+  } catch (error) {
+    console.error('Failed to delete file record:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to delete file record");
+  }
+}
+
+export async function createTempQueue() {
+  try {
+    return await databaseService.createTempQueue();
+  } catch (error) {
+    console.error('Failed to create temp queue:', error);
+    throw new ChatSDKError("bad_request:database", "Failed to create temp queue");
   }
 }
 

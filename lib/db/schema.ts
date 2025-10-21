@@ -1,5 +1,6 @@
 import type { InferSelectModel } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   date,
   foreignKey,
@@ -203,8 +204,8 @@ export const client = pgTable("Client", {
   case_type: varchar("case_type", { length: 255 }),
   other_side_name: varchar("other_side_name", { length: 255 }),
   other_side_relation: varchar("other_side_relation", { length: 255 }),
-  other_side_represented_by_attorney: boolean("other_side_represented_by_attorney"),
   other_side_contact_info: text("other_side_contact_info"),
+  other_side_attorney_info: text("other_side_attorney_info"),
   // Custody-specific fields
   children_involved: boolean("children_involved"),
   children_details: text("children_details"),
@@ -214,3 +215,22 @@ export const client = pgTable("Client", {
 });
 
 export type Client = InferSelectModel<typeof client>;
+
+export const files = pgTable("files", {
+  id: uuid("id").primaryKey().notNull().defaultRandom(),
+  clientName: varchar("client_name", { length: 255 }), // Store client name for reference
+  fileName: text("file_name").notNull(),
+  fileType: varchar("file_type", { length: 255 }).notNull(),
+  fileSize: bigint("file_size", { mode: "number" }).notNull(),
+  fileUrl: text("file_url").notNull(),
+  uploadTimestamp: timestamp("upload_timestamp").notNull().defaultNow(),
+  // uploaderUserId column has been removed from the files table
+  tempQueueId: uuid("temp_queue_id"), // For temporary storage when no client is identified
+  status: varchar("status", { enum: ["assigned", "temp_queue", "error"] })
+    .notNull()
+    .default("assigned"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type FileRecord = InferSelectModel<typeof files>;

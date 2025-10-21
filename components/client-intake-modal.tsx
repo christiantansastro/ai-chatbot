@@ -65,8 +65,8 @@ interface ClientFormData {
   case_type: string;
   other_side_name: string;
   other_side_relation: string;
-  other_side_represented_by_attorney: boolean;
   other_side_contact_info: string;
+  other_side_attorney_info: string;
   children_involved: boolean;
   children_details: string;
   previous_court_orders: boolean;
@@ -132,8 +132,8 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     case_type: "",
     other_side_name: "",
     other_side_relation: "",
-    other_side_represented_by_attorney: false,
     other_side_contact_info: "",
+    other_side_attorney_info: "",
     children_involved: false,
     children_details: "",
     previous_court_orders: false,
@@ -249,8 +249,8 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       } else if (formData.client_type === "civil") {
         if (formData.other_side_name) submissionData.other_side_name = formData.other_side_name;
         if (formData.other_side_relation) submissionData.other_side_relation = formData.other_side_relation;
-        if (formData.other_side_represented_by_attorney !== undefined) submissionData.other_side_represented_by_attorney = formData.other_side_represented_by_attorney;
         if (formData.other_side_contact_info) submissionData.other_side_contact_info = formData.other_side_contact_info;
+        if (formData.other_side_attorney_info) submissionData.other_side_attorney_info = formData.other_side_attorney_info;
         if (formData.children_involved !== undefined) submissionData.children_involved = formData.children_involved;
         if (formData.children_details) submissionData.children_details = formData.children_details;
         if (formData.previous_court_orders !== undefined) submissionData.previous_court_orders = formData.previous_court_orders;
@@ -310,8 +310,8 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             case_type: "",
             other_side_name: "",
             other_side_relation: "",
-            other_side_represented_by_attorney: false,
             other_side_contact_info: "",
+            other_side_attorney_info: "",
             children_involved: false,
             children_details: "",
             previous_court_orders: false,
@@ -783,30 +783,25 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        <Label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={formData.other_side_represented_by_attorney}
-            onChange={(e) => handleInputChange("other_side_represented_by_attorney", e.target.checked)}
-            className="rounded"
-          />
-          Represented by Attorney
-        </Label>
-
+      <div className="space-y-4">
         <div>
+          <Label htmlFor="other_side_contact_info">Contact info for otherside</Label>
           <Input
             id="other_side_contact_info"
             value={formData.other_side_contact_info}
             onChange={(e) => handleInputChange("other_side_contact_info", e.target.value)}
-            placeholder="Contact info for other side"
-            disabled={formData.other_side_represented_by_attorney}
+            placeholder="Contact information for the other side"
           />
-          <p className="text-xs text-muted-foreground mt-1">
-            {formData.other_side_represented_by_attorney
-              ? "Not needed when represented by attorney"
-              : "Contact information for the other side"}
-          </p>
+        </div>
+
+        <div>
+          <Label htmlFor="other_side_attorney_info">Attorney info for otherside</Label>
+          <Input
+            id="other_side_attorney_info"
+            value={formData.other_side_attorney_info}
+            onChange={(e) => handleInputChange("other_side_attorney_info", e.target.value)}
+            placeholder="Attorney information for the other side"
+          />
         </div>
       </div>
 

@@ -34,6 +34,8 @@ import { deleteCommunication } from "@/lib/ai/tools/delete-communication";
 import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
 import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
 import { createClientReport } from "@/lib/ai/tools/create-client-report";
+import { fileStorage } from "@/lib/ai/tools/file-storage";
+import { MultiAgentSystem } from "@/lib/ai/agents/multi-agent-system";
 // Google Tools
 import {
   createCalendarEvent,
@@ -191,8 +193,112 @@ export async function POST(request: Request) {
     console.log('UI Messages count:', uiMessages.length);
 
     const stream = createUIMessageStream({
-      execute: ({ writer: dataStream }) => {
+      execute: async ({ writer: dataStream }) => {
         console.log('Executing stream with dataStream writer');
+
+        // Extract text content from the user's message for intent classification
+        const userMessageText = message.parts
+          ?.filter(part => part.type === 'text')
+          ?.map(part => (part as any).text || '')
+          ?.join(' ') || '';
+
+        // Check if message has file attachments
+        const hasFileAttachments = message.parts?.some(part =>
+          part.type === 'file' || (part as any).type === 'file'
+        ) || false;
+
+        console.log('Message analysis:', {
+          hasText: !!userMessageText.trim(),
+          hasFileAttachments,
+          partsCount: message.parts?.length || 0
+        });
+
+        // Use multi-agent system to determine which tools should be available
+        let availableTools: any = {};
+        let activeToolNames: string[] = [];
+
+        if (userMessageText.trim()) {
+          try {
+            const multiAgentSystem = new MultiAgentSystem();
+            await multiAgentSystem.initialize();
+
+            const classification = multiAgentSystem.classifyQuery(userMessageText);
+            console.log(`🤖 Multi-Agent: Query classified as ${classification.category} (${classification.confidence.toFixed(2)} confidence)`);
+
+            // Determine which tools to make available based on classification
+            switch (classification.category) {
+              case 'clients':
+                availableTools = {
+                  queryClients,
+                  createClient,
+                  updateClient,
+                  deleteClient,
+                  createClientReport: createClientReport({ session, dataStream }),
+                };
+                activeToolNames = ["queryClients", "createClient", "updateClient", "deleteClient", "createClientReport"];
+                break;
+
+              case 'financials':
+                availableTools = {
+                  queryFinancialBalance,
+                  queryRecentPayments,
+                  addFinancialTransaction,
+                  updateFinancialTransaction,
+                  deleteFinancialTransaction,
+                  getFinancialHistory,
+                  createFinancialStatement: createFinancialStatement({ session, dataStream }),
+                };
+                activeToolNames = [
+                  "queryFinancialBalance", "queryRecentPayments", "addFinancialTransaction",
+                  "updateFinancialTransaction", "deleteFinancialTransaction", "getFinancialHistory", "createFinancialStatement"
+                ];
+                break;
+
+              case 'communications':
+                availableTools = {
+                  queryCommunications,
+                  addCommunication,
+                  updateCommunication,
+                  deleteCommunication,
+                  getCommunicationSummary,
+                };
+                activeToolNames = ["queryCommunications", "addCommunication", "updateCommunication", "deleteCommunication", "getCommunicationSummary"];
+                break;
+
+              case 'files':
+                availableTools = {
+                  fileStorage,
+                  queryClients, // For client validation in file operations
+                };
+                activeToolNames = ["fileStorage", "queryClients"];
+                break;
+
+              default:
+                // For general queries, provide limited tools
+                availableTools = {
+                  queryClients,
+                  fileStorage,
+                };
+                activeToolNames = ["queryClients", "fileStorage"];
+                break;
+            }
+          } catch (error) {
+            console.error('Error in multi-agent classification:', error);
+            // Fallback to limited tools if classification fails
+            availableTools = {
+              queryClients,
+              fileStorage,
+            };
+            activeToolNames = ["queryClients", "fileStorage"];
+          }
+        } else {
+          // No text content, provide basic tools
+          availableTools = {
+            queryClients,
+            fileStorage,
+          };
+          activeToolNames = ["queryClients", "fileStorage"];
+        }
 
         const result = streamText({
           model: myProvider.languageModel(selectedChatModel),
@@ -202,65 +308,9 @@ export async function POST(request: Request) {
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
-              : [
-                  "queryClients",
-                  "createClient",
-                  "updateClient",
-                  "deleteClient",
-                  "queryFinancialBalance",
-                  "queryRecentPayments",
-                  "addFinancialTransaction",
-                  "updateFinancialTransaction",
-                  "deleteFinancialTransaction",
-                  "getFinancialHistory",
-                  "queryCommunications",
-                  "addCommunication",
-                  "updateCommunication",
-                  "deleteCommunication",
-                  "getCommunicationSummary",
-                  "createFinancialStatement",
-                  "createClientReport",
-                  // Google Tools
-                  "createCalendarEvent",
-                  "readCalendarEvents",
-                  "updateCalendarEvent",
-                  "deleteCalendarEvent",
-                  "createTask",
-                  "readTasks",
-                  "updateTask",
-                  "deleteTask",
-                  "markTaskComplete",
-                ] as any,
+              : activeToolNames as any,
           experimental_transform: smoothStream({ chunking: "word" }),
-          tools: {
-            queryClients,
-            createClient,
-            updateClient,
-            deleteClient,
-            queryFinancialBalance,
-            queryRecentPayments,
-            addFinancialTransaction,
-            updateFinancialTransaction,
-            deleteFinancialTransaction,
-            getFinancialHistory,
-            queryCommunications,
-            addCommunication,
-            updateCommunication,
-            deleteCommunication,
-            getCommunicationSummary,
-            createFinancialStatement: createFinancialStatement({ session, dataStream }),
-            createClientReport: createClientReport({ session, dataStream }),
-            // Google Tools
-            createCalendarEvent,
-            readCalendarEvents,
-            updateCalendarEvent,
-            deleteCalendarEvent,
-            createTask,
-            readTasks,
-            updateTask,
-            deleteTask,
-            markTaskComplete,
-          },
+          tools: availableTools,
           experimental_telemetry: {
             isEnabled: isProductionEnvironment,
             functionId: "stream-text",

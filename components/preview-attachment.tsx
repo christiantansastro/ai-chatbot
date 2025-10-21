@@ -20,7 +20,7 @@ export const PreviewAttachment = ({
       className="group relative size-16 overflow-hidden rounded-lg border bg-muted"
       data-testid="input-attachment-preview"
     >
-      {contentType?.startsWith("image") ? (
+      {contentType?.startsWith("image") && url ? (
         <Image
           alt={name ?? "An image attachment"}
           className="size-full object-cover"
@@ -30,7 +30,7 @@ export const PreviewAttachment = ({
         />
       ) : (
         <div className="flex size-full items-center justify-center text-muted-foreground text-xs">
-          File
+          {url ? "File" : "Pending"}
         </div>
       )}
 

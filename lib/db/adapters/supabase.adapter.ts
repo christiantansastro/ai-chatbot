@@ -956,6 +956,207 @@ export class SupabaseAdapter implements DatabaseAdapter {
     }
   }
 
+  // File operations
+  async createFileRecord(fileData: any): Promise<any> {
+    try {
+      console.log('📁 SUPABASE ADAPTER: Creating file record', {
+        id: fileData.id,
+        fileName: fileData.fileName,
+        fileType: fileData.fileType,
+        uploaderUserId: fileData.uploaderUserId
+      });
+
+      // Use service role client to bypass RLS for file record creation
+      const client = this.serviceSupabase || this.supabase;
+
+      // Build insert data - uploader_user_id and client_id columns have been removed from the table
+      const insertData: any = {
+        id: fileData.id,
+        client_name: fileData.clientName,
+        file_name: fileData.fileName,
+        file_type: fileData.fileType,
+        file_size: fileData.fileSize,
+        file_url: fileData.fileUrl,
+        upload_timestamp: fileData.uploadTimestamp.toISOString(),
+        temp_queue_id: fileData.tempQueueId,
+        status: fileData.status,
+        created_at: fileData.createdAt.toISOString(),
+        updated_at: fileData.updatedAt.toISOString()
+      };
+
+      // uploader_user_id column has been removed from the files table
+      // Don't include it in the insert data
+
+      const { data, error } = await client
+        .from('files')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('📁 SUPABASE ADAPTER: File record insert error:', error);
+        throw error;
+      }
+
+      console.log('📁 SUPABASE ADAPTER: File record created successfully');
+      return data;
+    } catch (error) {
+      console.error('📁 SUPABASE ADAPTER: Failed to create file record:', error);
+      throw new DatabaseError('Failed to create file record', error);
+    }
+  }
+
+  async getFilesByClientId(clientId: string): Promise<any[]> {
+    try {
+      // Use service role client to bypass RLS for reading
+      const client = this.serviceSupabase || this.supabase;
+
+      const { data, error } = await client
+        .from('files')
+        .select('*')
+        .eq('client_name', clientId) // Search by client_name instead of client_id
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      return (data || []).map((file: any) => ({
+        id: file.id,
+        clientName: file.client_name,
+        fileName: file.file_name,
+        fileType: file.file_type,
+        fileSize: file.file_size,
+        fileUrl: file.file_url,
+        uploadTimestamp: new Date(file.upload_timestamp),
+        uploaderUserId: undefined, // Column removed from database
+        tempQueueId: file.temp_queue_id,
+        status: file.status,
+        createdAt: new Date(file.created_at),
+        updatedAt: new Date(file.updated_at)
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to get files by client name', error);
+    }
+  }
+
+  async getFilesByTempQueueId(tempQueueId: string): Promise<any[]> {
+    try {
+      // Use service role client to bypass RLS for reading
+      const client = this.serviceSupabase || this.supabase;
+
+      const { data, error } = await client
+        .from('files')
+        .select('*')
+        .eq('temp_queue_id', tempQueueId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      return (data || []).map((file: any) => ({
+        id: file.id,
+        clientName: file.client_name,
+        fileName: file.file_name,
+        fileType: file.file_type,
+        fileSize: file.file_size,
+        fileUrl: file.file_url,
+        uploadTimestamp: new Date(file.upload_timestamp),
+        uploaderUserId: undefined, // Column removed from database
+        tempQueueId: file.temp_queue_id,
+        status: file.status,
+        createdAt: new Date(file.created_at),
+        updatedAt: new Date(file.updated_at)
+      }));
+    } catch (error) {
+      throw new DatabaseError('Failed to get files by temp queue ID', error);
+    }
+  }
+
+  async updateFileStatus(fileId: string, status: 'assigned' | 'temp_queue' | 'error', clientName?: string): Promise<any> {
+    try {
+      // Use service role client to bypass RLS for updates
+      const client = this.serviceSupabase || this.supabase;
+
+      const updateData: any = {
+        status,
+        updated_at: new Date().toISOString()
+      };
+
+      if (clientName) {
+        updateData.client_name = clientName;
+      }
+
+      const { data, error } = await client
+        .from('files')
+        .update(updateData)
+        .eq('id', fileId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: data.id,
+        clientName: data.client_name,
+        fileName: data.file_name,
+        fileType: data.file_type,
+        fileSize: data.file_size,
+        fileUrl: data.file_url,
+        uploadTimestamp: new Date(data.upload_timestamp),
+        uploaderUserId: undefined, // Column removed from database
+        tempQueueId: data.temp_queue_id,
+        status: data.status,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at)
+      };
+    } catch (error) {
+      throw new DatabaseError('Failed to update file status', error);
+    }
+  }
+
+  async deleteFileRecord(fileId: string): Promise<any> {
+    try {
+      // Use service role client to bypass RLS for deletion
+      const client = this.serviceSupabase || this.supabase;
+
+      const { data, error } = await client
+        .from('files')
+        .delete()
+        .eq('id', fileId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: data.id,
+        clientName: data.client_name,
+        fileName: data.file_name,
+        fileType: data.file_type,
+        fileSize: data.file_size,
+        fileUrl: data.file_url,
+        uploadTimestamp: new Date(data.upload_timestamp),
+        uploaderUserId: undefined, // Column removed from database
+        tempQueueId: data.temp_queue_id,
+        status: data.status,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at)
+      };
+    } catch (error) {
+      throw new DatabaseError('Failed to delete file record', error);
+    }
+  }
+
+  async createTempQueue(): Promise<{ id: string }> {
+    try {
+      // For simplicity, we'll use a UUID as temp queue ID
+      // In a real implementation, you might want a separate temp_queues table
+      const tempQueueId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      return { id: tempQueueId };
+    } catch (error) {
+      throw new DatabaseError('Failed to create temp queue', error);
+    }
+  }
+
   // Transaction support (Supabase doesn't support transactions like PostgreSQL)
   async beginTransaction(): Promise<void> {
     // No-op for Supabase

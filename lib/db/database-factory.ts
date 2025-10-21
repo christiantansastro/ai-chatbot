@@ -290,6 +290,37 @@ export class DatabaseService {
     return adapter.getSuggestionsByDocumentId(documentId);
   }
 
+  // File operations
+  async createFileRecord(fileData: any) {
+    const adapter = await this.getAdapter();
+    return adapter.createFileRecord(fileData);
+  }
+
+  async getFilesByClientId(clientId: string) {
+    const adapter = await this.getAdapter();
+    return adapter.getFilesByClientId(clientId);
+  }
+
+  async getFilesByTempQueueId(tempQueueId: string) {
+    const adapter = await this.getAdapter();
+    return adapter.getFilesByTempQueueId(tempQueueId);
+  }
+
+  async updateFileStatus(fileId: string, status: 'assigned' | 'temp_queue' | 'error', clientName?: string) {
+    const adapter = await this.getAdapter();
+    return adapter.updateFileStatus(fileId, status, clientName);
+  }
+
+  async deleteFileRecord(fileId: string) {
+    const adapter = await this.getAdapter();
+    return adapter.deleteFileRecord(fileId);
+  }
+
+  async createTempQueue() {
+    const adapter = await this.getAdapter();
+    return adapter.createTempQueue();
+  }
+
   // Utility operations
   async getMessageCountByUserId(userId: string, hours: number) {
     const adapter = await this.getAdapter();

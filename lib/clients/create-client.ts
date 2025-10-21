@@ -41,8 +41,8 @@ export interface CreateClientData {
   payment_method?: string;
   other_side_name?: string;
   other_side_relation?: string;
-  other_side_represented_by_attorney?: boolean;
   other_side_contact_info?: string;
+  other_side_attorney_info?: string;
   children_involved?: boolean;
   children_details?: string;
   previous_court_orders?: boolean;
@@ -119,8 +119,8 @@ export async function createClientRecord(
     due_date_balance: clientData.due_date_balance || undefined,
     other_side_name: clientData.other_side_name || undefined,
     other_side_relation: clientData.other_side_relation || undefined,
-    other_side_represented_by_attorney: clientData.other_side_represented_by_attorney ?? undefined,
     other_side_contact_info: clientData.other_side_contact_info || undefined,
+    other_side_attorney_info: clientData.other_side_attorney_info || undefined,
     children_involved: clientData.children_involved ?? undefined,
     children_details: clientData.children_details || undefined,
     previous_court_orders: clientData.previous_court_orders ?? undefined,
@@ -278,13 +278,8 @@ export function formatClientRecord(data: any) {
       : "Not provided",
     otherSideName: data.other_side_name || "Not provided",
     otherSideRelation: data.other_side_relation || "Not provided",
-    otherSideRepresentedByAttorney:
-      data.other_side_represented_by_attorney !== undefined
-        ? data.other_side_represented_by_attorney
-          ? "Yes"
-          : "No"
-        : "Not specified",
     otherSideContactInfo: data.other_side_contact_info || "Not provided",
+    otherSideAttorneyInfo: data.other_side_attorney_info || "Not provided",
     childrenInvolved:
       data.children_involved !== undefined
         ? data.children_involved

@@ -25,6 +25,9 @@ import { myProvider } from "@/lib/ai/providers";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { cn } from "@/lib/utils";
+import { FileStorageManager } from "@/lib/utils/file-storage-manager";
+import { EdgeCaseHandler } from "@/lib/utils/edge-case-handler";
+import { identifyClientsInText, getPrimaryClientReference } from "@/lib/utils/client-identification";
 import { Context } from "./elements/context";
 import {
   PromptInput,
@@ -106,6 +109,14 @@ function PureMultimodalInput({
     ""
   );
 
+  const [tempFiles, setTempFiles] = useState<Array<{
+    tempId: string;
+    filename: string;
+    contentType: string;
+    size: number;
+    fileBuffer: ArrayBuffer;
+  }>>([]);
+
   useEffect(() => {
     if (textareaRef.current) {
       const domValue = textareaRef.current.value;
@@ -129,39 +140,221 @@ function PureMultimodalInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadQueue, setUploadQueue] = useState<string[]>([]);
 
-  const submitForm = useCallback(() => {
-    window.history.replaceState({}, "", `/chat/${chatId}`);
+  // Handle client assignment for temporary files
+  const handleClientAssignment = useCallback(async (clientMessage: string) => {
+    try {
+      if (tempFiles.length === 0) {
+        toast.info('No temporary files to assign');
+        return;
+      }
 
-    sendMessage({
-      role: "user",
-      parts: [
-        ...attachments.map((attachment) => ({
-          type: "file" as const,
-          url: attachment.url,
-          name: attachment.name,
-          mediaType: attachment.contentType,
-        })),
-        {
-          type: "text",
-          text: input,
-        },
-      ],
-    });
+      // Extract client name from message
+      const clientMatch = clientMessage.match(/(?:for|to)\s+client\s+([A-Za-z\s]+)|client\s+([A-Za-z\s]+)/i);
+      const clientName = clientMatch ? (clientMatch[1] || clientMatch[2]).trim() : clientMessage.trim();
 
-    setAttachments([]);
-    setLocalStorageInput("");
-    resetHeight();
-    setInput("");
+      if (!clientName || clientName.length < 2) {
+        toast.error('Please specify a valid client name');
+        return;
+      }
 
-    if (width && width > 768) {
-      textareaRef.current?.focus();
+      // Get current user session
+      const session = await fetch('/api/auth/session').then(res => res.json());
+      if (!session?.user?.id) {
+        toast.error('Authentication required');
+        return;
+      }
+
+      // Store all temp files with the identified client
+      const storePromises = tempFiles.map(async (tempFile) => {
+        const response = await fetch("/api/files/store", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            tempId: tempFile.tempId,
+            filename: tempFile.filename,
+            contentType: tempFile.contentType,
+            size: tempFile.size,
+            fileBuffer: btoa(String.fromCharCode(...new Uint8Array(tempFile.fileBuffer))),
+            clientName: clientName,
+          }),
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          return {
+            url: result.url,
+            name: tempFile.filename,
+            contentType: tempFile.contentType,
+          };
+        }
+        throw new Error('Failed to store file');
+      });
+
+      const storedFiles = await Promise.all(storePromises);
+
+      if (storedFiles.length > 0) {
+        // Update attachments with stored file URLs
+        const newAttachments = storedFiles.map(file => ({
+          url: file.url,
+          name: file.name,
+          contentType: file.contentType,
+        }));
+
+        setAttachments(newAttachments);
+        setTempFiles([]);
+
+        toast.success(`${storedFiles.length} file(s) stored for client: ${clientName}`);
+      }
+    } catch (error) {
+      console.error('Error assigning files to client:', error);
+      toast.error('Failed to assign files to client');
+    }
+  }, [tempFiles, chatId, setAttachments, setTempFiles]);
+
+  const submitForm = useCallback(async () => {
+    try {
+      // Validate message and attachments
+      const messageValidation = EdgeCaseHandler.validateMessageText(input);
+      if (!messageValidation.isValid) {
+        EdgeCaseHandler.showErrorMessage({
+          handled: true,
+          shouldContinue: false,
+          message: `Message validation failed: ${messageValidation.errors.join(', ')}`
+        });
+        return;
+      }
+
+      // Get current user session
+      const session = await fetch('/api/auth/session').then(res => res.json());
+      if (!session?.user?.id) {
+        EdgeCaseHandler.showErrorMessage({
+          handled: true,
+          shouldContinue: false,
+          message: 'Authentication required for file operations'
+        });
+        return;
+      }
+
+      let finalAttachments = attachments;
+      let needsClientAssignment = false;
+
+      // Handle temp files that need client assignment
+      if (tempFiles.length > 0) {
+        // Check if client is identified in the message
+        const clientIdentification = await identifyClientsInText(input);
+
+        if (clientIdentification.success && clientIdentification.clients.length > 0) {
+          const primaryClient = getPrimaryClientReference(clientIdentification.clients);
+
+          if (primaryClient) {
+            // Store files to Supabase Storage and database with identified client
+            try {
+              const storePromises = tempFiles.map(async (tempFile) => {
+                const response = await fetch("/api/files/store", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    tempId: tempFile.tempId,
+                    filename: tempFile.filename,
+                    contentType: tempFile.contentType,
+                    size: tempFile.size,
+                    fileBuffer: btoa(String.fromCharCode(...new Uint8Array(tempFile.fileBuffer))),
+                    clientName: primaryClient.name,
+                  }),
+                });
+
+                if (response.ok) {
+                  const result = await response.json();
+                  return {
+                    url: result.url,
+                    name: tempFile.filename,
+                    contentType: tempFile.contentType,
+                  };
+                }
+                throw new Error('Failed to store file');
+              });
+
+              const storedFiles = await Promise.all(storePromises);
+              finalAttachments = storedFiles;
+
+              // Clear temp files since they've been stored
+              setTempFiles([]);
+
+              toast.success(`Files stored for client: ${primaryClient.name}`);
+            } catch (error) {
+              console.error('Error storing files:', error);
+              toast.error('Failed to store files. They will remain in temporary queue.');
+              needsClientAssignment = true;
+            }
+          } else {
+            needsClientAssignment = true;
+          }
+        } else {
+          needsClientAssignment = true;
+        }
+      }
+
+      // Send the message to AI (no files sent to AI, but pass temp file data in context)
+      window.history.replaceState({}, "", `/chat/${chatId}`);
+
+      // Clear temp file data since files have been stored successfully
+      if (tempFiles.length > 0 && finalAttachments.length > 0) {
+        // Files were stored successfully, clear temp data and update state
+        sessionStorage.removeItem(`tempFiles_${chatId}`);
+        setTempFiles([]);
+        console.log(`📁 CLIENT: Cleared ${tempFiles.length} temp files after successful storage`);
+      } else if (tempFiles.length > 0) {
+        // Files need client assignment, keep temp data
+        sessionStorage.setItem(`tempFiles_${chatId}`, JSON.stringify(tempFiles));
+        console.log(`📁 CLIENT: Keeping ${tempFiles.length} temp files for client assignment`);
+      }
+
+      // Send the original user message without modification
+      const messageToSend = input;
+
+      sendMessage({
+        role: "user",
+        parts: [
+          {
+            type: "text",
+            text: messageToSend,
+          },
+        ],
+      });
+
+      // Clear form state
+      setAttachments([]);
+      setLocalStorageInput("");
+      resetHeight();
+      setInput("");
+
+      if (width && width > 768) {
+        textareaRef.current?.focus();
+      }
+
+      // Handle post-submission logic for temp files
+      if (needsClientAssignment && tempFiles.length > 0) {
+        toast.warning(`Please specify which client these ${tempFiles.length} file(s) are for.`);
+      }
+
+    } catch (error) {
+      console.error('Error in submitForm:', error);
+      EdgeCaseHandler.showErrorMessage(
+        EdgeCaseHandler.handleUnexpectedError(error, 'message submission')
+      );
     }
   }, [
     input,
     setInput,
     attachments,
+    tempFiles,
     sendMessage,
     setAttachments,
+    setTempFiles,
     setLocalStorageInput,
     width,
     chatId,
@@ -209,27 +402,138 @@ function PureMultimodalInput({
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
+      const validFiles: File[] = [];
+      const invalidFiles: string[] = [];
 
-      setUploadQueue(files.map((file) => file.name));
+      // Validate files before uploading
+      for (const file of files) {
+        // Check file size (10MB limit)
+        if (file.size > 10 * 1024 * 1024) {
+          invalidFiles.push(`${file.name} (file too large - max 10MB)`);
+          continue;
+        }
+
+        // Check file type
+        const allowedTypes = [
+          'image/jpeg',
+          'image/png',
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv'
+        ];
+
+        if (!allowedTypes.includes(file.type)) {
+          // Also check by file extension as fallback
+          const extension = file.name.toLowerCase().split('.').pop();
+          const allowedExtensions = ['jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx', 'xlsx', 'csv'];
+
+          if (!extension || !allowedExtensions.includes(extension)) {
+            invalidFiles.push(`${file.name} (unsupported file type)`);
+            continue;
+          }
+        }
+
+        validFiles.push(file);
+      }
+
+      // Show errors for invalid files
+      if (invalidFiles.length > 0) {
+        toast.error(`Some files were rejected:\n${invalidFiles.join('\n')}`);
+      }
+
+      if (validFiles.length === 0) {
+        return;
+      }
+
+      setUploadQueue(validFiles.map((file) => file.name));
 
       try {
-        const uploadPromises = files.map((file) => uploadFile(file));
-        const uploadedAttachments = await Promise.all(uploadPromises);
-        const successfullyUploadedAttachments = uploadedAttachments.filter(
-          (attachment) => attachment !== undefined
+        // Upload files to get temp IDs (no storage yet)
+        const tempFilePromises = validFiles.map(async (file) => {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("filename", file.name); // Send filename explicitly
+
+          console.log('📁 CLIENT DEBUG: Uploading file:', {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            formDataFilename: formData.get("filename")
+          });
+
+          const response = await fetch("/api/files/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log('📁 CLIENT DEBUG: Upload response:', result);
+            return result;
+          }
+          const error = await response.json();
+          throw new Error(error.error || "Upload failed");
+        });
+
+        const tempFileResults = await Promise.all(tempFilePromises);
+        const validTempFiles = tempFileResults.filter((result) => result.tempId);
+
+        console.log('📁 CLIENT DEBUG: Upload results:', tempFileResults);
+        console.log('📁 CLIENT DEBUG: Valid temp files:', validTempFiles);
+
+        // Store file buffers for later storage
+        const filesWithBuffers = await Promise.all(
+          validFiles.map(async (file) => {
+            const matchedTempFile = validTempFiles.find(t => t.filename === file.name);
+            console.log('📁 CLIENT DEBUG: Matching file:', {
+              originalName: file.name,
+              matchedTempFile: matchedTempFile,
+              matchedFilename: matchedTempFile?.filename
+            });
+
+            return {
+              tempId: matchedTempFile?.tempId,
+              filename: file.name,
+              contentType: file.type,
+              size: file.size,
+              fileBuffer: await file.arrayBuffer(),
+            };
+          })
         );
 
-        setAttachments((currentAttachments) => [
-          ...currentAttachments,
-          ...successfullyUploadedAttachments,
-        ]);
+        const filesWithValidTempIds = filesWithBuffers.filter(f => f.tempId);
+
+        if (filesWithValidTempIds.length > 0) {
+          setTempFiles((currentTempFiles) => [
+            ...currentTempFiles,
+            ...filesWithValidTempIds,
+          ]);
+
+          // Create temporary attachments for preview (no image preview for temp files)
+          const tempAttachments = filesWithValidTempIds.map((tempFile) => ({
+            url: '', // No preview URL for temp files
+            name: tempFile.filename,
+            contentType: tempFile.contentType,
+          }));
+
+          setAttachments((currentAttachments) => [
+            ...currentAttachments,
+            ...tempAttachments,
+          ]);
+
+          toast.success(`${filesWithValidTempIds.length} file(s) ready. Please specify the client.`);
+        }
       } catch (error) {
-        console.error("Error uploading files!", error);
+        console.error("Error processing files!", error);
+        toast.error("Failed to process some files. Please try again.");
       } finally {
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [setAttachments]
   );
 
   return (
@@ -245,6 +549,7 @@ function PureMultimodalInput({
         )}
 
       <input
+        accept=".jpg,.jpeg,.png,.pdf,.doc,.docx,.xlsx,.csv,image/jpeg,image/png,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
         className="-top-4 -left-4 pointer-events-none fixed size-0.5 opacity-0"
         multiple
         onChange={handleFileChange}

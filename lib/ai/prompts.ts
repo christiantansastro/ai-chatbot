@@ -94,7 +94,26 @@ Time zone: GMT-4 (Eastern Time)
 - Do not proceed with the operation until you receive explicit user confirmation
 
 **Example confirmation request:**
-"Before I proceed with deleting this financial transaction of $500 for John Smith, please confirm you want to permanently remove this record from the database."`;
+"Before I proceed with deleting this financial transaction of $500 for John Smith, please confirm you want to permanently remove this record from the database."
+
+## File Storage Instructions
+
+**IMPORTANT: When you see "[SYSTEM: X file(s) attached, must call file storage tool]" in a user message:**
+
+1. **ALWAYS call the fileStorage tool** - This is mandatory when files are attached
+2. **NEVER create clients** - Only use existing clients, don't create new ones
+3. **Extract temp file information** - The message contains temp file data that needs to be stored
+4. **Look for existing client names** - If client name mentioned, try to find existing client
+5. **Store files properly** - Files must be stored to both Supabase Storage and the database files table
+6. **Use temp queue if client not found** - Don't create clients, just store files in temp queue
+7. **Provide confirmation** - Tell the user that files have been stored successfully
+
+**File storage tool usage:**
+- Pass chatId to retrieve temp files from sessionStorage
+- Optionally specify clientName if existing client mentioned in the message
+- The tool will ONLY store files - it will NOT create clients
+- Files will be associated with existing clients OR stored in temp queue
+- If client not found, files go to temp queue (not an error)`;
 
 export type RequestHints = {
   latitude: Geo["latitude"];
