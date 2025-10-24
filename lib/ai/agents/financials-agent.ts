@@ -1,4 +1,5 @@
 import { BaseAgent, AgentCategory, AgentResponse } from "./base-agent";
+import { queryOutstandingBalances } from "../tools/query-outstanding-balances";
 
 /**
  * Financials Agent - Handles all financial-related queries and operations
@@ -11,9 +12,8 @@ export class FinancialsAgent extends BaseAgent {
       "financials"
     );
 
-    // Note: Financial tools would be registered here when available
-    // this.registerTool("createFinancialStatement", createFinancialStatement);
-    // this.registerTool("queryFinancialTransactions", queryFinancialTransactions);
+    // Register financial tools
+    this.registerTool("queryOutstandingBalances", queryOutstandingBalances);
   }
 
   /**
@@ -24,37 +24,39 @@ export class FinancialsAgent extends BaseAgent {
 
     // Financial-related keywords
     const financialKeywords = [
-      'financial', 'finance', 'money', 'payment', 'payments',
-      'transaction', 'transactions', 'billing', 'bill', 'invoice', 'invoices',
-      'statement', 'financial statement', 'account', 'accounts',
-      'balance', 'balances', 'budget', 'budgets',
-      'revenue', 'income', 'expense', 'expenses', 'cost', 'costs',
-      'fee', 'fees', 'charge', 'charges', 'pricing', 'price',
-      'payment history', 'transaction history', 'financial history',
-      'financial report', 'financial summary', 'financial data',
-      'accounting', 'bookkeeping', 'ledger',
-      'profit', 'loss', 'earnings', 'financial performance',
-      'financial analysis', 'financial review', 'financial status',
-      'owed', 'owing', 'due', 'overdue', 'paid', 'unpaid',
-      'deposit', 'deposits', 'refund', 'refunds',
-      'tax', 'taxes', 'taxation', 'financial year',
-      'quarterly', 'monthly', 'annual', 'yearly',
-      'currency', 'dollar', 'amount', 'total', 'sum'
-    ];
+       'financial', 'finance', 'money', 'payment', 'payments',
+       'transaction', 'transactions', 'billing', 'bill', 'invoice', 'invoices',
+       'statement', 'financial statement', 'account', 'accounts',
+       'balance', 'balances', 'budget', 'budgets',
+       'revenue', 'income', 'expense', 'expenses', 'cost', 'costs',
+       'fee', 'fees', 'charge', 'charges', 'pricing', 'price',
+       'payment history', 'transaction history', 'financial history',
+       'financial report', 'financial summary', 'financial data',
+       'accounting', 'bookkeeping', 'ledger',
+       'profit', 'loss', 'earnings', 'financial performance',
+       'financial analysis', 'financial review', 'financial status',
+       'owed', 'owing', 'due', 'overdue', 'paid', 'unpaid',
+       'deposit', 'deposits', 'refund', 'refunds',
+       'tax', 'taxes', 'taxation', 'financial year',
+       'quarterly', 'monthly', 'annual', 'yearly',
+       'currency', 'dollar', 'amount', 'total', 'sum',
+       'outstanding', 'outstanding balance'
+     ];
 
     // Check for financial keywords
     const hasFinancialKeyword = financialKeywords.some(keyword => lowerQuery.includes(keyword));
 
     // Check for specific financial operations
     const financialOperations = [
-      'generate financial statement', 'create financial statement', 'financial statement for',
-      'check balance', 'check account balance', 'account balance for',
-      'payment history', 'transaction history', 'financial history',
-      'financial report', 'financial summary', 'financial analysis',
-      'how much', 'what is the cost', 'what does it cost',
-      'billing information', 'invoice status', 'payment status',
-      'financial overview', 'financial status', 'financial position'
-    ];
+       'generate financial statement', 'create financial statement', 'financial statement for',
+       'check balance', 'check account balance', 'account balance for',
+       'payment history', 'transaction history', 'financial history',
+       'financial report', 'financial summary', 'financial analysis',
+       'how much', 'what is the cost', 'what does it cost',
+       'billing information', 'invoice status', 'payment status',
+       'financial overview', 'financial status', 'financial position',
+       'outstanding balance', 'outstanding balances', 'list outstanding', 'show outstanding'
+     ];
 
     const hasFinancialOperation = financialOperations.some(operation => lowerQuery.includes(operation));
 
@@ -71,15 +73,17 @@ export class FinancialsAgent extends BaseAgent {
       const lowerQuery = query.toLowerCase();
 
       // Determine which type of financial query this is
-      if (lowerQuery.includes('statement') || lowerQuery.includes('financial statement')) {
-        return await this.handleFinancialStatement(query, context);
-      } else if (lowerQuery.includes('payment') || lowerQuery.includes('transaction') || lowerQuery.includes('history')) {
-        return await this.handlePaymentHistory(query, context);
-      } else if (lowerQuery.includes('balance') || lowerQuery.includes('amount') || lowerQuery.includes('total')) {
-        return await this.handleBalanceQuery(query, context);
-      } else {
-        return await this.handleGeneralFinancialQuery(query, context);
-      }
+       if (lowerQuery.includes('statement') || lowerQuery.includes('financial statement')) {
+         return await this.handleFinancialStatement(query, context);
+       } else if (lowerQuery.includes('payment') || lowerQuery.includes('transaction') || lowerQuery.includes('history')) {
+         return await this.handlePaymentHistory(query, context);
+       } else if (lowerQuery.includes('outstanding') || (lowerQuery.includes('balance') && lowerQuery.includes('outstanding'))) {
+         return await this.handleOutstandingBalances(query, context);
+       } else if (lowerQuery.includes('balance') || lowerQuery.includes('amount') || lowerQuery.includes('total')) {
+         return await this.handleBalanceQuery(query, context);
+       } else {
+         return await this.handleGeneralFinancialQuery(query, context);
+       }
     } catch (error) {
       const processingTime = Date.now() - startTime;
       return {
@@ -247,6 +251,46 @@ export class FinancialsAgent extends BaseAgent {
         metadata: {
           processingTime,
           toolsUsed: ['queryBalance'],
+          confidence: 0
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle outstanding balances queries
+   */
+  private async handleOutstandingBalances(query: string, context?: any): Promise<AgentResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Use the queryOutstandingBalances tool
+      const result = await (queryOutstandingBalances as any)({ limit: 50 });
+
+      const processingTime = Date.now() - startTime;
+
+      return {
+        success: result.success,
+        message: result.message,
+        data: result.clients,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['queryOutstandingBalances'],
+          confidence: 0.9
+        }
+      };
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      return {
+        success: false,
+        message: `Error querying outstanding balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['queryOutstandingBalances'],
           confidence: 0
         }
       };

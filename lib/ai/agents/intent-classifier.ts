@@ -171,7 +171,8 @@ export class IntentClassifier {
       financials: [
         'financial', 'finance', 'money', 'payment', 'payments', 'transaction',
         'statement', 'financial statement', 'balance', 'budget', 'invoice',
-        'revenue', 'income', 'expense', 'cost', 'fee', 'billing', 'accounting'
+        'revenue', 'income', 'expense', 'cost', 'fee', 'billing', 'accounting',
+        'outstanding', 'outstanding balance', 'owed', 'owing', 'due', 'overdue'
       ],
       communications: [
         'communication', 'message', 'email', 'call', 'meeting', 'appointment',
@@ -214,7 +215,9 @@ export class IntentClassifier {
         /\b(financial|payment|transaction|billing)\s+(statement|history|record|report)\b/i,
         /\b(account|balance|budget|invoice)\s+(information|details|status|summary)\b/i,
         /\b(financial|money|cost|fee|charge)\s+(analysis|review|overview|summary)\b/i,
-        /\b(payment|transaction|billing)\s+(history|records|details)\b/i
+        /\b(payment|transaction|billing)\s+(history|records|details)\b/i,
+        /\b(outstanding|owed|owing|due|overdue)\s+balance\b/i,
+        /\b(balance|amount)\s+(outstanding|owed|due|overdue)\b/i
       ],
       communications: [
         /\b(communication|message|email|call)\s+(history|log|record|summary)\b/i,
@@ -272,7 +275,8 @@ export class IntentClassifier {
       financials: [
         'financial', 'finance', 'money', 'payment', 'payments', 'transaction',
         'statement', 'financial statement', 'balance', 'budget', 'invoice',
-        'revenue', 'income', 'expense', 'cost', 'fee', 'billing', 'accounting'
+        'revenue', 'income', 'expense', 'cost', 'fee', 'billing', 'accounting',
+        'outstanding', 'outstanding balance', 'owed', 'owing', 'due', 'overdue'
       ],
       communications: [
         'communication', 'message', 'email', 'call', 'meeting', 'appointment',

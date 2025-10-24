@@ -38,7 +38,6 @@ interface ClientFormData {
   quoted: string;
   initial_payment: string;
   due_date_balance: string;
-  payment_method: string;
 
   // Criminal-specific fields
   arrested: boolean;
@@ -109,7 +108,6 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     quoted: "",
     initial_payment: "",
     due_date_balance: "",
-    payment_method: "",
     arrested: false,
     arrested_county: "",
     currently_incarcerated: false,
@@ -224,7 +222,6 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       if (formData.quoted) submissionData.quoted = formData.quoted;
       if (formData.initial_payment) submissionData.initial_payment = formData.initial_payment;
       if (formData.due_date_balance) submissionData.due_date_balance = formData.due_date_balance;
-      if (formData.payment_method) submissionData.payment_method = formData.payment_method;
 
       // Add type-specific fields
       if (formData.client_type === "criminal") {
@@ -287,7 +284,6 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             quoted: "",
             initial_payment: "",
             due_date_balance: "",
-            payment_method: "",
             arrested: false,
             arrested_county: "",
             currently_incarcerated: false,
@@ -523,16 +519,6 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             value={formData.initial_payment}
             onChange={(e) => handleInputChange("initial_payment", e.target.value)}
             placeholder="e.g., $500.00"
-          />
-        </div>
-
-        <div>
-          <Label htmlFor="payment_method">Payment Method</Label>
-          <Input
-            id="payment_method"
-            value={formData.payment_method}
-            onChange={(e) => handleInputChange("payment_method", e.target.value)}
-            placeholder="e.g., Cash, Credit Card, Bank Transfer"
           />
         </div>
       </div>

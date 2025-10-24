@@ -2,6 +2,7 @@ import { BaseAgent, AgentCategory, AgentResponse } from "./base-agent";
 import { queryClients } from "../tools/query-clients";
 import { createClientReport } from "../tools/create-client-report";
 import { updateClient } from "../tools/update-client";
+import { queryOutstandingBalances } from "../tools/query-outstanding-balances";
 
 /**
  * Clients Agent - Handles all client-related queries and operations
@@ -18,6 +19,7 @@ export class ClientsAgent extends BaseAgent {
     this.registerTool("queryClients", queryClients);
     this.registerTool("createClientReport", createClientReport);
     this.registerTool("updateClient", updateClient);
+    this.registerTool("queryOutstandingBalances", queryOutstandingBalances);
   }
 
   /**
@@ -28,16 +30,18 @@ export class ClientsAgent extends BaseAgent {
 
     // Client-related keywords
     const clientKeywords = [
-      'client', 'clients', 'customer', 'customers',
-      'client name', 'find client', 'search client', 'lookup client',
-      'client information', 'client details', 'client data',
-      'client report', 'client profile', 'client summary',
-      'update client', 'modify client', 'edit client',
-      'client type', 'civil client', 'criminal client',
-      'client contact', 'client email', 'client phone',
-      'arrested', 'incarcerated', 'probation', 'parole',
-      'case type', 'charges', 'county', 'court date'
-    ];
+       'client', 'clients', 'customer', 'customers',
+       'client name', 'find client', 'search client', 'lookup client',
+       'client information', 'client details', 'client data',
+       'client report', 'client profile', 'client summary',
+       'update client', 'modify client', 'edit client',
+       'client type', 'civil client', 'criminal client',
+       'client contact', 'client email', 'client phone',
+       'arrested', 'incarcerated', 'probation', 'parole',
+       'case type', 'charges', 'county', 'court date',
+       'outstanding balance', 'outstanding', 'balance', 'balances',
+       'financial balance', 'payment balance', 'owed', 'owing'
+     ];
 
     // Check for client keywords
     const hasClientKeyword = clientKeywords.some(keyword => lowerQuery.includes(keyword));
@@ -64,13 +68,15 @@ export class ClientsAgent extends BaseAgent {
       const lowerQuery = query.toLowerCase();
 
       // Determine which tool to use based on the query
-      if (lowerQuery.includes('report') || lowerQuery.includes('summary') || lowerQuery.includes('profile')) {
-        return await this.handleClientReport(query, context);
-      } else if (lowerQuery.includes('update') || lowerQuery.includes('modify') || lowerQuery.includes('edit')) {
-        return await this.handleClientUpdate(query, context);
-      } else {
-        return await this.handleClientSearch(query, context);
-      }
+       if (lowerQuery.includes('report') || lowerQuery.includes('summary') || lowerQuery.includes('profile')) {
+         return await this.handleClientReport(query, context);
+       } else if (lowerQuery.includes('update') || lowerQuery.includes('modify') || lowerQuery.includes('edit')) {
+         return await this.handleClientUpdate(query, context);
+       } else if (lowerQuery.includes('outstanding') || lowerQuery.includes('balance') || lowerQuery.includes('owed') || lowerQuery.includes('owing')) {
+         return await this.handleOutstandingBalances(query, context);
+       } else {
+         return await this.handleClientSearch(query, context);
+       }
     } catch (error) {
       const processingTime = Date.now() - startTime;
       return {
@@ -230,6 +236,46 @@ export class ClientsAgent extends BaseAgent {
         metadata: {
           processingTime,
           toolsUsed: [],
+          confidence: 0
+        }
+      };
+    }
+  }
+
+  /**
+   * Handle outstanding balances queries
+   */
+  private async handleOutstandingBalances(query: string, context?: any): Promise<AgentResponse> {
+    const startTime = Date.now();
+
+    try {
+      // Use the queryOutstandingBalances tool
+      const result = await (queryOutstandingBalances as any)({ limit: 50 });
+
+      const processingTime = Date.now() - startTime;
+
+      return {
+        success: result.success,
+        message: result.message,
+        data: result.clients,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['queryOutstandingBalances'],
+          confidence: 0.9
+        }
+      };
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      return {
+        success: false,
+        message: `Error querying outstanding balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['queryOutstandingBalances'],
           confidence: 0
         }
       };

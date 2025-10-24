@@ -22,6 +22,7 @@ import { createClient } from "@/lib/ai/tools/create-client";
 import { updateClient } from "@/lib/ai/tools/update-client";
 import { deleteClient } from "@/lib/ai/tools/delete-client";
 import { queryFinancialBalance } from "@/lib/ai/tools/query-financial-balance";
+import { queryOutstandingBalances } from "@/lib/ai/tools/query-outstanding-balances";
 import { queryRecentPayments } from "@/lib/ai/tools/query-recent-payments";
 import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
 import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
@@ -241,6 +242,7 @@ export async function POST(request: Request) {
               case 'financials':
                 availableTools = {
                   queryFinancialBalance,
+                  queryOutstandingBalances,
                   queryRecentPayments,
                   addFinancialTransaction,
                   updateFinancialTransaction,
@@ -249,7 +251,7 @@ export async function POST(request: Request) {
                   createFinancialStatement: createFinancialStatement({ session, dataStream }),
                 };
                 activeToolNames = [
-                  "queryFinancialBalance", "queryRecentPayments", "addFinancialTransaction",
+                  "queryFinancialBalance", "queryOutstandingBalances", "queryRecentPayments", "addFinancialTransaction",
                   "updateFinancialTransaction", "deleteFinancialTransaction", "getFinancialHistory", "createFinancialStatement"
                 ];
                 break;
