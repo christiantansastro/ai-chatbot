@@ -147,7 +147,24 @@ CREATE INDEX IF NOT EXISTS idx_clients_due_date_balance ON clients(due_date_bala
 
 -- Create GIN indexes for full-text search and trigram matching
 CREATE INDEX IF NOT EXISTS idx_clients_search ON clients USING GIN (
-    to_tsvector('english', client_name || ' ' || COALESCE(email, '') || ' ' || COALESCE(phone, '') || ' ' || COALESCE(contact_1, '') || ' ' || COALESCE(address, '') || ' ' || COALESCE(county, '') || ' ' || COALESCE(case_type, '') || ' ' || COALESCE(charges, ''))
+    to_tsvector('english',
+        client_name || ' ' ||
+        COALESCE(email, '') || ' ' ||
+        COALESCE(phone, '') || ' ' ||
+        COALESCE(contact_1, '') || ' ' ||
+        COALESCE(contact_1_phone, '') || ' ' ||
+        COALESCE(contact_2, '') || ' ' ||
+        COALESCE(contact_2_phone, '') || ' ' ||
+        COALESCE(address, '') || ' ' ||
+        COALESCE(county, '') || ' ' ||
+        COALESCE(case_type, '') || ' ' ||
+        COALESCE(charges, '') || ' ' ||
+        COALESCE(other_side_name, '') || ' ' ||
+        COALESCE(other_side_contact_info, '') || ' ' ||
+        COALESCE(other_side_attorney_info, '') || ' ' ||
+        COALESCE(probation_officer, '') || ' ' ||
+        COALESCE(parole_officer, '')
+    )
 );
 
 -- Create trigram indexes for fuzzy matching (with explicit operator classes)
@@ -155,6 +172,10 @@ CREATE INDEX IF NOT EXISTS idx_clients_client_name_trgm ON clients USING GIN (cl
 CREATE INDEX IF NOT EXISTS idx_clients_email_trgm ON clients USING GIN (COALESCE(email, '') gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_clients_phone_trgm ON clients USING GIN (COALESCE(phone, '') gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_clients_contact_1_trgm ON clients USING GIN (COALESCE(contact_1, '') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_clients_contact_1_phone_trgm ON clients USING GIN (COALESCE(contact_1_phone, '') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_clients_contact_2_trgm ON clients USING GIN (COALESCE(contact_2, '') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_clients_contact_2_phone_trgm ON clients USING GIN (COALESCE(contact_2_phone, '') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_clients_other_side_name_trgm ON clients USING GIN (COALESCE(other_side_name, '') gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_streams_chat_id ON streams(chat_id);
 
 -- Enable Row Level Security (RLS)
@@ -356,6 +377,7 @@ CREATE OR REPLACE FUNCTION search_clients_precise(
 )
 RETURNS TABLE (
     client_name TEXT,
+    client_type TEXT,
     date_intake DATE,
     date_of_birth DATE,
     address TEXT,
@@ -363,9 +385,45 @@ RETURNS TABLE (
     email TEXT,
     contact_1 TEXT,
     relationship_1 TEXT,
+    contact_1_phone TEXT,
     contact_2 TEXT,
     relationship_2 TEXT,
+    contact_2_phone TEXT,
     notes TEXT,
+    county TEXT,
+    court_date DATE,
+    quoted TEXT,
+    initial_payment TEXT,
+    due_date_balance DATE,
+    arrested BOOLEAN,
+    arrested_county TEXT,
+    currently_incarcerated BOOLEAN,
+    incarceration_location TEXT,
+    incarceration_reason TEXT,
+    last_bond_hearing_date DATE,
+    last_bond_hearing_location TEXT,
+    date_of_incident DATE,
+    incident_county TEXT,
+    on_probation BOOLEAN,
+    probation_county TEXT,
+    probation_officer TEXT,
+    probation_time_left TEXT,
+    on_parole BOOLEAN,
+    parole_officer TEXT,
+    parole_time_left TEXT,
+    arrest_reason TEXT,
+    charges TEXT,
+    served_papers_or_initial_filing TEXT,
+    case_type TEXT,
+    other_side_name TEXT,
+    other_side_relation TEXT,
+    other_side_contact_info TEXT,
+    other_side_attorney_info TEXT,
+    children_involved BOOLEAN,
+    children_details TEXT,
+    previous_court_orders BOOLEAN,
+    previous_orders_county TEXT,
+    previous_orders_case_number TEXT,
     created_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ
 )
@@ -375,6 +433,7 @@ BEGIN
     RETURN QUERY
     SELECT
         c.client_name,
+        c.client_type,
         c.date_intake,
         c.date_of_birth,
         c.address,
@@ -382,9 +441,45 @@ BEGIN
         c.email,
         c.contact_1,
         c.relationship_1,
+        c.contact_1_phone,
         c.contact_2,
         c.relationship_2,
+        c.contact_2_phone,
         c.notes,
+        c.county,
+        c.court_date,
+        c.quoted,
+        c.initial_payment,
+        c.due_date_balance,
+        c.arrested,
+        c.arrested_county,
+        c.currently_incarcerated,
+        c.incarceration_location,
+        c.incarceration_reason,
+        c.last_bond_hearing_date,
+        c.last_bond_hearing_location,
+        c.date_of_incident,
+        c.incident_county,
+        c.on_probation,
+        c.probation_county,
+        c.probation_officer,
+        c.probation_time_left,
+        c.on_parole,
+        c.parole_officer,
+        c.parole_time_left,
+        c.arrest_reason,
+        c.charges,
+        c.served_papers_or_initial_filing,
+        c.case_type,
+        c.other_side_name,
+        c.other_side_relation,
+        c.other_side_contact_info,
+        c.other_side_attorney_info,
+        c.children_involved,
+        c.children_details,
+        c.previous_court_orders,
+        c.previous_orders_county,
+        c.previous_orders_case_number,
         c.created_at,
         c.updated_at
     FROM clients c
@@ -404,8 +499,16 @@ BEGIN
         -- Or contact match
         OR (c.contact_1 IS NOT NULL AND similarity(c.contact_1, search_query) > similarity_threshold)
         OR (c.contact_2 IS NOT NULL AND similarity(c.contact_2, search_query) > similarity_threshold)
-        -- Or address contains the search term
+        OR (c.contact_1_phone IS NOT NULL AND similarity(c.contact_1_phone, search_query) > similarity_threshold)
+        OR (c.contact_2_phone IS NOT NULL AND similarity(c.contact_2_phone, search_query) > similarity_threshold)
+        OR (c.other_side_name IS NOT NULL AND similarity(c.other_side_name, search_query) > similarity_threshold)
+        -- Or address/location contains the search term
         OR (c.address IS NOT NULL AND LOWER(c.address) LIKE '%' || LOWER(search_query) || '%')
+        OR (c.county IS NOT NULL AND LOWER(c.county) LIKE '%' || LOWER(search_query) || '%')
+        OR (c.arrested_county IS NOT NULL AND LOWER(c.arrested_county) LIKE '%' || LOWER(search_query) || '%')
+        OR (c.incident_county IS NOT NULL AND LOWER(c.incident_county) LIKE '%' || LOWER(search_query) || '%')
+        OR (c.probation_county IS NOT NULL AND LOWER(c.probation_county) LIKE '%' || LOWER(search_query) || '%')
+        OR (c.previous_orders_county IS NOT NULL AND LOWER(c.previous_orders_county) LIKE '%' || LOWER(search_query) || '%')
     ORDER BY
         -- Prioritize exact matches first
         CASE

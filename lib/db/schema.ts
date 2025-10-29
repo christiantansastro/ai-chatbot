@@ -177,11 +177,11 @@ export type Stream = InferSelectModel<typeof stream>;
 export const client = pgTable("Client", {
   id: uuid("id").primaryKey().notNull().defaultRandom(),
   client_name: varchar("client_name", { length: 255 }).notNull().unique(),
-  client_type: varchar("client_type", { length: 20 }), // 'criminal' or 'civil'
+  client_type: varchar("client_type", { length: 20 }).notNull(), // 'criminal' or 'civil'
   date_intake: date("date_intake").notNull().defaultNow(),
   date_of_birth: date("date_of_birth"),
   address: text("address"),
-  phone: varchar("phone", { length: 50 }),
+  phone: varchar("phone", { length: 50 }).notNull(), // Made required as per form validation
   email: varchar("email", { length: 255 }),
   contact_1: varchar("contact_1", { length: 255 }),
   relationship_1: varchar("relationship_1", { length: 255 }),
@@ -197,20 +197,20 @@ export const client = pgTable("Client", {
   initial_payment: varchar("initial_payment", { length: 20 }),
   due_date_balance: date("due_date_balance"),
   // Criminal-specific fields
-  arrested: boolean("arrested"),
+  arrested: boolean("arrested").default(false),
   arrested_county: varchar("arrested_county", { length: 255 }),
-  currently_incarcerated: boolean("currently_incarcerated"),
+  currently_incarcerated: boolean("currently_incarcerated").default(false),
   incarceration_location: text("incarceration_location"),
   incarceration_reason: text("incarceration_reason"),
   last_bond_hearing_date: date("last_bond_hearing_date"),
   last_bond_hearing_location: varchar("last_bond_hearing_location", { length: 255 }),
   date_of_incident: date("date_of_incident"),
   incident_county: varchar("incident_county", { length: 255 }),
-  on_probation: boolean("on_probation"),
+  on_probation: boolean("on_probation").default(false),
   probation_county: varchar("probation_county", { length: 255 }),
   probation_officer: varchar("probation_officer", { length: 255 }),
   probation_time_left: varchar("probation_time_left", { length: 255 }),
-  on_parole: boolean("on_parole"),
+  on_parole: boolean("on_parole").default(false),
   parole_officer: varchar("parole_officer", { length: 255 }),
   parole_time_left: varchar("parole_time_left", { length: 255 }),
   arrest_reason: text("arrest_reason"),
@@ -223,13 +223,13 @@ export const client = pgTable("Client", {
   other_side_contact_info: text("other_side_contact_info"),
   other_side_attorney_info: text("other_side_attorney_info"),
   // Custody-specific fields
-  children_involved: boolean("children_involved"),
+  children_involved: boolean("children_involved").default(false),
   children_details: text("children_details"),
-  previous_court_orders: boolean("previous_court_orders"),
+  previous_court_orders: boolean("previous_court_orders").default(false),
   previous_orders_county: varchar("previous_orders_county", { length: 255 }),
   previous_orders_case_number: varchar("previous_orders_case_number", { length: 255 }),
-  createdAt: timestamp("createdAt").notNull(),
-  updatedAt: timestamp("updatedAt").notNull(),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
 });
 
 export type Client = InferSelectModel<typeof client>;

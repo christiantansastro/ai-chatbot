@@ -3,54 +3,126 @@ import { z } from "zod";
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
 interface UpdateClientData {
+  // Common fields
   client_name?: string;
-  client_type?: string;
+  client_type?: 'civil' | 'criminal';
   email?: string;
   phone?: string;
   address?: string;
   date_of_birth?: string;
   date_intake?: string;
+  
+  // Contact information
   contact_1?: string;
   relationship_1?: string;
+  contact_1_phone?: string;
   contact_2?: string;
   relationship_2?: string;
+  contact_2_phone?: string;
+  
+  // Common case details
   notes?: string;
   county?: string;
-  arrested?: boolean;
-  charges?: string;
-  served_papers_or_initial_filing?: string;
-  case_type?: string;
   court_date?: string;
   quoted?: string;
   initial_payment?: string;
   due_date_balance?: string;
+  
+  // Criminal-specific fields
+  arrested?: boolean;
+  arrested_county?: string;
+  currently_incarcerated?: boolean;
+  incarceration_location?: string;
+  incarceration_reason?: string;
+  last_bond_hearing_date?: string;
+  last_bond_hearing_location?: string;
+  date_of_incident?: string;
+  incident_county?: string;
+  on_probation?: boolean;
+  probation_county?: string;
+  probation_officer?: string;
+  probation_time_left?: string;
+  on_parole?: boolean;
+  parole_officer?: string;
+  parole_time_left?: string;
+  arrest_reason?: string;
+  charges?: string;
+  
+  // Civil-specific fields
+  served_papers_or_initial_filing?: string;
+  case_type?: string;
+  other_side_name?: string;
+  other_side_relation?: string;
+  other_side_contact_info?: string;
+  other_side_attorney_info?: string;
+  children_involved?: boolean;
+  children_details?: string;
+  previous_court_orders?: boolean;
+  previous_orders_county?: string;
+  previous_orders_case_number?: string;
 }
 
 export const updateClient = tool({
   description: "Update an existing client record in the Supabase database by searching for the client first, then applying the updates",
   inputSchema: z.object({
     searchQuery: z.string().describe("Name, email, or phone number to find the client to update"),
+    // Common fields
     client_name: z.string().optional().describe("Updated full name of the client"),
-    client_type: z.string().optional().describe("Updated client type: ' criminal' or 'civil'"),
+    client_type: z.enum(["civil", "criminal"]).optional().describe("Updated client type"),
     email: z.string().optional().describe("Updated email address"),
     phone: z.string().optional().describe("Updated phone number"),
     address: z.string().optional().describe("Updated address"),
     date_of_birth: z.string().optional().describe("Updated date of birth (YYYY-MM-DD format)"),
-    date_intake: z.string().optional().describe("Updated date of intake (YYYY-MM-DD format, defaults to today if not provided)"),
+    date_intake: z.string().optional().describe("Updated date of intake (YYYY-MM-DD format)"),
+    
+    // Contact information
     contact_1: z.string().optional().describe("Updated first contact person's name"),
     relationship_1: z.string().optional().describe("Updated relationship of first contact to client"),
+    contact_1_phone: z.string().optional().describe("Updated phone number of first contact"),
     contact_2: z.string().optional().describe("Updated second contact person's name"),
     relationship_2: z.string().optional().describe("Updated relationship of second contact to client"),
+    contact_2_phone: z.string().optional().describe("Updated phone number of second contact"),
+    
+    // Common case details
     notes: z.string().optional().describe("Updated notes about the client"),
     county: z.string().optional().describe("Updated county where legal issues are located"),
-    arrested: z.boolean().optional().describe("Updated whether client was arrested ( criminal clients only)"),
-    charges: z.string().optional().describe("Updated criminal charges ( criminal clients only)"),
-    served_papers_or_initial_filing: z.string().optional().describe("Updated whether served papers or initial filing (civil clients only)"),
-    case_type: z.string().optional().describe("Updated type of civil case (divorce, custody, etc.)"),
     court_date: z.string().optional().describe("Updated scheduled court date (YYYY-MM-DD format)"),
     quoted: z.string().optional().describe("Updated quoted amount for services"),
     initial_payment: z.string().optional().describe("Updated initial payment amount"),
     due_date_balance: z.string().optional().describe("Updated due date for balance (YYYY-MM-DD format)"),
+    
+    // Criminal-specific fields
+    arrested: z.boolean().optional().describe("Updated whether client was arrested (criminal clients only)"),
+    arrested_county: z.string().optional().describe("Updated county where arrested"),
+    currently_incarcerated: z.boolean().optional().describe("Updated whether client is currently incarcerated"),
+    incarceration_location: z.string().optional().describe("Updated location of incarceration"),
+    incarceration_reason: z.string().optional().describe("Updated reason for incarceration"),
+    last_bond_hearing_date: z.string().optional().describe("Updated date of last bond hearing (YYYY-MM-DD format)"),
+    last_bond_hearing_location: z.string().optional().describe("Updated location of last bond hearing"),
+    date_of_incident: z.string().optional().describe("Updated date of incident (YYYY-MM-DD format)"),
+    incident_county: z.string().optional().describe("Updated county where incident occurred"),
+    on_probation: z.boolean().optional().describe("Updated whether client is on probation"),
+    probation_county: z.string().optional().describe("Updated county of probation"),
+    probation_officer: z.string().optional().describe("Updated name of probation officer"),
+    probation_time_left: z.string().optional().describe("Updated time remaining on probation"),
+    on_parole: z.boolean().optional().describe("Updated whether client is on parole"),
+    parole_officer: z.string().optional().describe("Updated name of parole officer"),
+    parole_time_left: z.string().optional().describe("Updated time remaining on parole"),
+    arrest_reason: z.string().optional().describe("Updated reason for arrest"),
+    charges: z.string().optional().describe("Updated criminal charges"),
+    
+    // Civil-specific fields
+    served_papers_or_initial_filing: z.string().optional().describe("Updated details about papers served or initial filing"),
+    case_type: z.string().optional().describe("Updated type of civil case (divorce, custody, etc.)"),
+    other_side_name: z.string().optional().describe("Updated name of opposing party"),
+    other_side_relation: z.string().optional().describe("Updated relation to opposing party"),
+    other_side_contact_info: z.string().optional().describe("Updated contact information for opposing party"),
+    other_side_attorney_info: z.string().optional().describe("Updated attorney information for opposing party"),
+    children_involved: z.boolean().optional().describe("Updated whether children are involved in the case"),
+    children_details: z.string().optional().describe("Updated details about involved children"),
+    previous_court_orders: z.boolean().optional().describe("Updated whether there are previous court orders"),
+    previous_orders_county: z.string().optional().describe("Updated county of previous court orders"),
+    previous_orders_case_number: z.string().optional().describe("Updated case number of previous court orders"),
   }),
   execute: async (updateData): Promise<{
     success: boolean;
@@ -155,6 +227,7 @@ export const updateClient = tool({
 
       // Format the response
       const updatedClient = {
+        // Common fields
         name: data.client_name,
         clientType: data.client_type || 'Not specified',
         email: data.email || 'Not provided',
@@ -162,20 +235,57 @@ export const updateClient = tool({
         address: data.address || 'Not provided',
         dateOfBirth: data.date_of_birth ? new Date(data.date_of_birth).toLocaleDateString() : 'Not provided',
         intakeDate: data.date_intake ? new Date(data.date_intake).toLocaleDateString() : 'Not provided',
+        
+        // Contact information
         contact1: data.contact_1 || 'Not provided',
         relationship1: data.relationship_1 || 'Not provided',
+        contact1Phone: data.contact_1_phone || 'Not provided',
         contact2: data.contact_2 || 'Not provided',
         relationship2: data.relationship_2 || 'Not provided',
+        contact2Phone: data.contact_2_phone || 'Not provided',
+        
+        // Common case details
         notes: data.notes || 'No notes',
         county: data.county || 'Not provided',
-        arrested: data.arrested !== undefined ? (data.arrested ? 'Yes' : 'No') : 'Not specified',
-        charges: data.charges || 'Not provided',
-        servedPapersOrInitialFiling: data.served_papers_or_initial_filing || 'Not provided',
-        caseType: data.case_type || 'Not provided',
         courtDate: data.court_date ? new Date(data.court_date).toLocaleDateString() : 'Not provided',
         quoted: data.quoted || 'Not provided',
         initialPayment: data.initial_payment || 'Not provided',
         dueDateBalance: data.due_date_balance ? new Date(data.due_date_balance).toLocaleDateString() : 'Not provided',
+        
+        // Criminal-specific fields
+        arrested: data.arrested !== undefined ? (data.arrested ? 'Yes' : 'No') : 'Not specified',
+        arrestedCounty: data.arrested_county || 'Not provided',
+        currentlyIncarcerated: data.currently_incarcerated !== undefined ? (data.currently_incarcerated ? 'Yes' : 'No') : 'Not specified',
+        incarcerationLocation: data.incarceration_location || 'Not provided',
+        incarcerationReason: data.incarceration_reason || 'Not provided',
+        lastBondHearingDate: data.last_bond_hearing_date ? new Date(data.last_bond_hearing_date).toLocaleDateString() : 'Not provided',
+        lastBondHearingLocation: data.last_bond_hearing_location || 'Not provided',
+        dateOfIncident: data.date_of_incident ? new Date(data.date_of_incident).toLocaleDateString() : 'Not provided',
+        incidentCounty: data.incident_county || 'Not provided',
+        onProbation: data.on_probation !== undefined ? (data.on_probation ? 'Yes' : 'No') : 'Not specified',
+        probationCounty: data.probation_county || 'Not provided',
+        probationOfficer: data.probation_officer || 'Not provided',
+        probationTimeLeft: data.probation_time_left || 'Not provided',
+        onParole: data.on_parole !== undefined ? (data.on_parole ? 'Yes' : 'No') : 'Not specified',
+        paroleOfficer: data.parole_officer || 'Not provided',
+        paroleTimeLeft: data.parole_time_left || 'Not provided',
+        arrestReason: data.arrest_reason || 'Not provided',
+        charges: data.charges || 'Not provided',
+        
+        // Civil-specific fields
+        servedPapersOrInitialFiling: data.served_papers_or_initial_filing || 'Not provided',
+        caseType: data.case_type || 'Not provided',
+        otherSideName: data.other_side_name || 'Not provided',
+        otherSideRelation: data.other_side_relation || 'Not provided',
+        otherSideContactInfo: data.other_side_contact_info || 'Not provided',
+        otherSideAttorneyInfo: data.other_side_attorney_info || 'Not provided',
+        childrenInvolved: data.children_involved !== undefined ? (data.children_involved ? 'Yes' : 'No') : 'Not specified',
+        childrenDetails: data.children_details || 'Not provided',
+        previousCourtOrders: data.previous_court_orders !== undefined ? (data.previous_court_orders ? 'Yes' : 'No') : 'Not specified',
+        previousOrdersCounty: data.previous_orders_county || 'Not provided',
+        previousOrdersCaseNumber: data.previous_orders_case_number || 'Not provided',
+        
+        // Metadata
         createdAt: new Date(data.created_at).toLocaleDateString(),
         updatedAt: new Date(data.updated_at).toLocaleDateString(),
         summary: `${data.client_name} (${data.client_type || 'Unspecified'}) - ${data.email || 'No email'} (${data.phone || 'No phone'})`
