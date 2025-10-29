@@ -166,7 +166,9 @@ export class IntentClassifier {
       clients: [
         'client', 'clients', 'customer', 'customers', 'client name', 'find client',
         'client information', 'client details', 'client report', 'client profile',
-        'arrested', 'incarcerated', 'probation', 'parole', 'case type', 'charges'
+        'arrested', 'incarcerated', 'probation', 'parole', 'case type', 'charges',
+        'update client', 'change client', 'modify client', 'edit client',
+        'client phone', 'client email', 'client address', 'client contact'
       ],
       financials: [
         'financial', 'finance', 'money', 'payment', 'payments', 'transaction',
@@ -209,7 +211,11 @@ export class IntentClassifier {
         /\b(client|customer)\s+(name|information|details|report|profile|summary)\b/i,
         /\b(find|search|lookup|locate)\s+(client|customer)\b/i,
         /\b(client|customer)\s+(type|status|history|record)\b/i,
-        /\b(arrested|incarcerated|probation|parole|charges|case)\b/i
+        /\b(arrested|incarcerated|probation|parole|charges|case)\b/i,
+        /\b(update|change|modify|edit)\s+(client|customer)\b/i,
+        /\b(client|customer).*\b(phone|email|address|contact)\b/i,
+        /\b(phone|email|address|contact).*\b(client|customer)\b/i,
+        /\b(update|change|modify|edit).*\b(number|email|address|contact)\s+(?:for|of)\s+\w+/i
       ],
       financials: [
         /\b(financial|payment|transaction|billing)\s+(statement|history|record|report)\b/i,
@@ -280,8 +286,9 @@ export class IntentClassifier {
       ],
       communications: [
         'communication', 'message', 'email', 'call', 'meeting', 'appointment',
-        'contact', 'speak', 'talk', 'discuss', 'schedule', 'notification',
-        'correspondence', 'conversation', 'interaction', 'follow up'
+        'speak', 'talk', 'discuss', 'schedule', 'notification',
+        'correspondence', 'conversation', 'interaction', 'follow up',
+        'send email', 'make call', 'schedule meeting', 'set appointment'
       ],
       files: [
         'file', 'files', 'document', 'upload', 'download', 'storage', 'organize',

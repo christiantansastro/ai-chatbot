@@ -31,6 +31,31 @@ export class QueryRouter {
     const startTime = Date.now();
 
     try {
+      // Pre-process query to detect client field updates
+      const clientUpdatePattern = /\b(update|change|modify|edit)\s+.*\b(number|email|address|contact)\s+(?:for|of)\s+(\w+)/i;
+      const clientUpdateMatch = query.match(clientUpdatePattern);
+
+      if (clientUpdateMatch) {
+        // This is a client field update query
+        const clientName = clientUpdateMatch[3];
+        console.log('🔄 QUERY ROUTER: Detected client field update for:', clientName);
+        
+        return {
+          success: true,
+          message: "Routing to clients agent for field update",
+          classification: {
+            category: 'clients',
+            confidence: 0.95,
+            keywords: ['update', 'client', clientUpdateMatch[2]],
+            reasoning: 'Direct client field update detected'
+          },
+          agent: this.clientsAgent.name,
+          response: await this.clientsAgent.processQuery(query, context),
+          processingTime: Date.now() - startTime,
+          routingPath: ['client_field_update_detection', 'clients_agent']
+        };
+      }
+
       // Step 1: Classify the query intent
       const classification = this.intentClassifier.classifyQuery(query);
 
