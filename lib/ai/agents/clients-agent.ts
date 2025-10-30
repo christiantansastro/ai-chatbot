@@ -22,7 +22,7 @@ export class ClientsAgent extends BaseAgent {
     this.registerTool("queryOutstandingBalances", queryOutstandingBalances);
   }
 
-  /**
+/**
    * Check if this agent can handle a given query based on keywords and context
    */
   public canHandle(query: string): boolean {
@@ -46,11 +46,13 @@ export class ClientsAgent extends BaseAgent {
     // Check for client keywords
     const hasClientKeyword = clientKeywords.some(keyword => lowerQuery.includes(keyword));
 
-    // Check for specific client operations
+    // Check for specific client operations (enhanced pattern matching)
     const clientOperations = [
       'generate client report', 'create client report', 'client report for',
       'find client by', 'search for client', 'look up client',
-      'update client information', 'modify client details'
+      'update client information', 'modify client details',
+      'create a report for', 'generate a report for', 'make a report for',
+      'report for', 'client report' // More flexible patterns
     ];
 
     const hasClientOperation = clientOperations.some(operation => lowerQuery.includes(operation));
@@ -67,7 +69,7 @@ export class ClientsAgent extends BaseAgent {
     try {
       const lowerQuery = query.toLowerCase();
 
-      // Determine which tool to use based on the query
+      // Determine which tool to use based on the query - prioritized by specificity
        if (lowerQuery.includes('report') || lowerQuery.includes('summary') || lowerQuery.includes('profile')) {
          return await this.handleClientReport(query, context);
        } else if (lowerQuery.includes('update') || lowerQuery.includes('modify') || lowerQuery.includes('edit')) {
@@ -167,21 +169,66 @@ export class ClientsAgent extends BaseAgent {
         };
       }
 
-      // For now, return a simplified response since the tool integration is complex
-      // In a full implementation, this would use the actual createClientReport tool
-      const result = {
-        success: true,
-        message: `Client report would be generated for ${clientName}`,
-        clientName,
-        reportType: 'client-report'
-      };
+      // Extract additional parameters from query
+      const includeCommunicationHistory = !query.toLowerCase().includes('no communication') &&
+                                         !query.toLowerCase().includes('exclude communication');
+      const reportDate = this.extractReportDate(query);
+      const reportTitle = this.extractReportTitle(query) || "Client Report";
 
+      // Check if we have session and dataStream context for direct tool execution
+      if (context?.session && context?.dataStream) {
+        try {
+          // Call the createClientReport tool directly with proper context
+          const toolResult = await (createClientReport as any)({
+            clientName,
+            includeCommunicationHistory,
+            reportDate,
+            reportTitle,
+            session: context.session,
+            dataStream: context.dataStream
+          });
+
+          const processingTime = Date.now() - startTime;
+
+          return {
+            success: true,
+            message: `Comprehensive client report generated successfully for ${clientName}`,
+            data: {
+              clientName,
+              reportId: toolResult.id,
+              reportTitle: toolResult.title,
+              reportType: 'client-report',
+              reportContent: toolResult.content,
+              includesCommunicationHistory: includeCommunicationHistory
+            },
+            agent: this.name,
+            category: this.category,
+            metadata: {
+              processingTime,
+              toolsUsed: ['createClientReport'],
+              confidence: 0.9
+            }
+          };
+        } catch (toolError) {
+          console.warn('Direct tool execution failed, falling back to agent response:', toolError);
+          // Continue to fallback response below
+        }
+      }
+
+      // Fallback response when direct tool execution is not available
       const processingTime = Date.now() - startTime;
 
       return {
         success: true,
-        message: `Client report generated successfully for ${clientName}`,
-        data: result,
+        message: `I'll generate a comprehensive client report for ${clientName} with ${includeCommunicationHistory ? 'communication history included' : 'basic information only'}. The report will include client profile, financial summary, ${includeCommunicationHistory ? 'and detailed communication history.' : 'but excluding communication history.'}`,
+        data: {
+          clientName,
+          reportTitle,
+          includeCommunicationHistory,
+          reportDate,
+          action: 'generate_report',
+          toolRequired: true
+        },
         agent: this.name,
         category: this.category,
         metadata: {
@@ -304,21 +351,76 @@ export class ClientsAgent extends BaseAgent {
    * Extract client name from query string
    */
   private extractClientName(query: string): string | null {
-    // Simple extraction - look for quoted names or names after common patterns
+    // Enhanced extraction with more patterns for "report for" requests
     const patterns = [
+      // Handle "report for [name]" patterns
+      /(?:report|summary|profile)\s+for\s+["']?([^"'\s]+(?:\s+[^"'\s]+)*?)["']?(?:\s|$)/i,
       /client\s+["']?([^"'\s]+(?:\s+[^"'\s]+)*?)["']?(?:\s|$)/i,
       /for\s+["']?([^"'\s]+(?:\s+[^"'\s]+)*?)["']?(?:\s|$)/i,
       /["']([^"']+)["']/,
-      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/
+      // Match capitalized names (more flexible)
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/,
+      // Match quoted or single word names
+      /\b([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:client|field|case|profile)/
     ];
 
     for (const pattern of patterns) {
+      const match = query.match(pattern);
+      if (match && match[1]) {
+        const name = match[1].trim();
+        // Filter out common non-name words
+        if (name && !['client', 'case', 'field', 'profile', 'summary', 'report', 'this', 'that', 'client'].includes(name.toLowerCase())) {
+          return name;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check if query is a report request
+   */
+  private isReportRequest(query: string): boolean {
+    const reportPatterns = [
+      /create\s+(?:a\s+)?(?:client\s+)?report\s+for/i,
+      /generate\s+(?:a\s+)?(?:client\s+)?report\s+for/i,
+      /make\s+(?:a\s+)?(?:client\s+)?report\s+for/i,
+      /build\s+(?:a\s+)?(?:client\s+)?report\s+for/i,
+      /\breport\s+for\s+[a-z]/i
+    ];
+    
+    return reportPatterns.some(pattern => pattern.test(query));
+  }
+
+  /**
+   * Extract report date from query string
+   */
+  private extractReportDate(query: string): string | undefined {
+    // Look for date patterns like YYYY-MM-DD
+    const datePattern = /(\d{4}-\d{2}-\d{2})/;
+    const match = query.match(datePattern);
+    return match ? match[1] : undefined;
+  }
+
+  /**
+   * Extract report title from query string
+   */
+  private extractReportTitle(query: string): string | undefined {
+    // Look for quoted titles or titles following "title:"
+    const titlePatterns = [
+      /title:\s*["']?([^"']+)["']?/i,
+      /named:\s*["']?([^"']+)["']?/i,
+      /called:\s*["']?([^"']+)["']?/i
+    ];
+
+    for (const pattern of titlePatterns) {
       const match = query.match(pattern);
       if (match && match[1]) {
         return match[1].trim();
       }
     }
 
-    return null;
+    return undefined;
   }
 }

@@ -13,6 +13,17 @@ export type DataPart = { type: "append-message"; message: string };
 
 export const messageMetadataSchema = z.object({
   createdAt: z.string(),
+  fileContext: z.object({
+    hasStoredFiles: z.boolean(),
+    hasTempFiles: z.boolean(),
+    storedFiles: z.array(z.object({
+      name: z.string(),
+      url: z.string(),
+      contentType: z.string()
+    })).optional(),
+    tempFilesCount: z.number(),
+    clientName: z.string().optional()
+  }).optional(),
 });
 
 export type MessageMetadata = z.infer<typeof messageMetadataSchema>;

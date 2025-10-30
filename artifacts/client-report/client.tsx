@@ -24,7 +24,7 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
     if (streamPart.type === "data-textDelta") {
       setArtifact((draftArtifact) => {
         const newContent = draftArtifact.content + streamPart.data;
-        // For client reports, never show the artifact panel - only show download button in chat
+        // For client reports, show the artifact panel with HTML content preview
         console.log('🔍 CLIENT REPORT ARTIFACT: StreamPart received', {
           dataLength: streamPart.data.length,
           newContentLength: newContent.length,
@@ -34,7 +34,7 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
         return {
           ...draftArtifact,
           content: newContent,
-          isVisible: false, // Never show artifact panel for client reports
+          isVisible: false, // Hide artifact panel for client reports - only show when clicked
           status: "streaming",
         };
       });

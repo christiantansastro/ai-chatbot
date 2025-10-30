@@ -298,9 +298,6 @@ function PureMultimodalInput({
         }
       }
 
-      // Send the message to AI (no files sent to AI, but pass temp file data in context)
-      window.history.replaceState({}, "", `/chat/${chatId}`);
-
       // Clear temp file data since files have been stored successfully
       if (tempFiles.length > 0 && finalAttachments.length > 0) {
         // Files were stored successfully, clear temp data and update state
@@ -313,15 +310,40 @@ function PureMultimodalInput({
         console.log(`📁 CLIENT: Keeping ${tempFiles.length} temp files for client assignment`);
       }
 
-      // Send the original user message without modification
-      const messageToSend = input;
+      // Prepare file context for AI agent
+      const hasStoredFiles = finalAttachments.length > 0 && !needsClientAssignment;
+      const hasTempFiles = tempFiles.length > 0;
+      
+      let fileContextForAI = null;
+      if (hasStoredFiles || hasTempFiles) {
+        // Extract client name from the original input message
+        const clientMatch = input.match(/(?:for|to)\s+client\s+([A-Za-z\s]+)|client\s+([A-Za-z\s]+)/i);
+        const extractedClientName = clientMatch ? (clientMatch[1] || clientMatch[2]).trim() : null;
+        
+        fileContextForAI = {
+          hasStoredFiles,
+          hasTempFiles,
+          storedFiles: finalAttachments,
+          tempFilesCount: tempFiles.length,
+          clientName: extractedClientName
+        };
+        
+        console.log(`📁 CLIENT: File context for AI:`, fileContextForAI);
+      }
 
+      // Send message to chat with file context stored in sessionStorage for the API to read
+      if (fileContextForAI) {
+        sessionStorage.setItem(`aiFileContext_${chatId}`, JSON.stringify(fileContextForAI));
+        console.log(`📁 CLIENT: Stored file context for API:`, fileContextForAI);
+      }
+
+      // Send clean original message to chat (no visible context added)
       sendMessage({
         role: "user",
         parts: [
           {
             type: "text",
-            text: messageToSend,
+            text: input, // Keep original message clean and visible
           },
         ],
       });

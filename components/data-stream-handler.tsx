@@ -148,7 +148,7 @@ export function DataStreamHandler() {
           next = {
             ...next,
             status: "idle",
-            isVisible: false,
+            isVisible: false, // Hide client reports by default - only show button
           };
         } else {
           next = {
