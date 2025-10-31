@@ -686,7 +686,7 @@ function generateClientReportHTML({
         
         ${clientInfo.contact_1 ? `<div class="info-grid" style="margin-top: 20px;">
             ${clientInfo.contact_1 ? `<div class="info-item">
-                <div class="label">Emergency Contact 1</div>
+                <div class="label">Alternative Contact 1</div>
                 <div class="value">${clientInfo.contact_1} (${clientInfo.relationship_1 || 'Contact'})</div>
             </div>` : ''}
             ${clientInfo.contact_1_phone ? `<div class="info-item">
@@ -694,7 +694,7 @@ function generateClientReportHTML({
                 <div class="value">${clientInfo.contact_1_phone}</div>
             </div>` : ''}
             ${clientInfo.contact_2 ? `<div class="info-item">
-                <div class="label">Emergency Contact 2</div>
+                <div class="label">Alternative Contact 2</div>
                 <div class="value">${clientInfo.contact_2} (${clientInfo.relationship_2 || 'Contact'})</div>
             </div>` : ''}
             ${clientInfo.contact_2_phone ? `<div class="info-item">

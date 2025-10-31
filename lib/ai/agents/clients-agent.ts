@@ -105,30 +105,96 @@ export class ClientsAgent extends BaseAgent {
       // Extract search parameters from query
       const searchParams = this.extractSearchParameters(query);
 
-      // For now, return a simplified response since the tool integration is complex
-      // In a full implementation, this would use the actual queryClients tool
-      const result = {
-        success: true,
-        message: `Searching for clients matching: ${searchParams.query || 'all clients'}`,
-        results: [],
-        totalCount: 0,
-        searchMethod: 'simplified'
-      };
+      // Use the queryClients tool to get actual client data
+      const searchResults = await (queryClients as any)({
+        query: searchParams.query,
+        limit: searchParams.limit,
+        filterByArrested: searchParams.filterByArrested,
+        filterByIncarcerated: searchParams.filterByIncarcerated,
+        filterByProbation: searchParams.filterByProbation,
+        filterByParole: searchParams.filterByParole,
+        clientType: searchParams.clientType,
+        fuzzyThreshold: searchParams.fuzzyThreshold
+      });
 
       const processingTime = Date.now() - startTime;
 
-      return {
-        success: true,
-        message: result.message,
-        data: result,
-        agent: this.name,
-        category: this.category,
-        metadata: {
-          processingTime,
-          toolsUsed: ['queryClients'],
-          confidence: 0.8
-        }
-      };
+      if (searchResults.success && searchResults.results && searchResults.results.length > 0) {
+        // Format client data for display with alternative contacts
+        const formattedClients = searchResults.results.map((client: any) => {
+          const formattedClient: any = {
+            id: client.id,
+            name: client.name,
+            clientType: client.clientType,
+            email: client.email,
+            phone: client.phone,
+            dateOfBirth: client.dateOfBirth,
+            address: client.address,
+            notes: client.notes,
+            county: client.county,
+            courtDate: client.courtDate,
+            quoted: client.quoted,
+            initialPayment: client.initialPayment,
+            dueDateBalance: client.dueDateBalance,
+            arrested: client.arrested,
+            currentlyIncarcerated: client.currentlyIncarcerated,
+            onProbation: client.onProbation,
+            onParole: client.onParole,
+            caseType: client.caseType,
+            childrenInvolved: client.childrenInvolved,
+            intakeDate: client.intakeDate,
+            lastUpdated: client.lastUpdated
+          };
+
+          // Add alternative contact information if available
+          if (client.contact1 && client.contact1 !== 'Not provided') {
+            formattedClient.alternativeContact1 = {
+              name: client.contact1,
+              relationship: client.relationship1,
+              phone: client.contact1Phone
+            };
+          }
+
+          if (client.contact2 && client.contact2 !== 'Not provided') {
+            formattedClient.alternativeContact2 = {
+              name: client.contact2,
+              relationship: client.relationship2,
+              phone: client.contact2Phone
+            };
+          }
+
+          return formattedClient;
+        });
+
+        return {
+          success: true,
+          message: `Found ${searchResults.results.length} client${searchResults.results.length === 1 ? '' : 's'}`,
+          data: {
+            clients: formattedClients,
+            totalCount: searchResults.totalCount,
+            searchMethod: searchResults.searchMethod
+          },
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime,
+            toolsUsed: ['queryClients'],
+            confidence: 0.9
+          }
+        };
+      } else {
+        return {
+          success: false,
+          message: searchResults.message || `No clients found matching "${searchParams.query || 'all clients'}"`,
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime,
+            toolsUsed: ['queryClients'],
+            confidence: 0.5
+          }
+        };
+      }
     } catch (error) {
       const processingTime = Date.now() - startTime;
       return {
