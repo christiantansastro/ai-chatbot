@@ -1,0 +1,337 @@
+/**
+ * Data Mapping for OpenPhone Contact Sync
+ * 
+ * This module handles the mapping between client data in Supabase and 
+ * OpenPhone contact format. It implements the naming convention:
+ * - Main Client: "James" (just client name)
+ * - Alternative Contact: "James - Brother" (client name + relationship)
+ */
+
+import type { Client } from './db/schema';
+
+// OpenPhone API Types (based on documentation)
+export interface OpenPhoneContact {
+  externalId?: string;
+  defaultFields: {
+    firstName?: string;
+    lastName?: string;
+    company?: string;
+    emails?: Array<{
+      name: string;
+      value: string;
+      id: string;
+    }>;
+    phoneNumbers?: Array<{
+      name: string;
+      value: string;
+      id: string;
+    }>;
+    role?: string;
+  };
+  customFields?: Array<{
+    name: string;
+    key: string;
+    type: 'multi-select' | 'text' | 'date' | 'number';
+    value: string | string[] | null;
+  }>;
+  source?: string;
+}
+
+export interface OpenPhoneContactResponse {
+  data: OpenPhoneContact;
+}
+
+export interface ContactCreationRequest {
+  defaultFields: OpenPhoneContact['defaultFields'];
+  customFields?: OpenPhoneContact['customFields'];
+  externalId?: string;
+  source?: string;
+}
+
+export interface ContactUpdateRequest {
+  defaultFields?: OpenPhoneContact['defaultFields'];
+  customFields?: OpenPhoneContact['customFields'];
+  externalId?: string;
+}
+
+export interface MappedContact {
+  openPhoneContact: ContactCreationRequest;
+  clientId: string;
+  clientName: string;
+  contactType: 'main' | 'alternative_1' | 'alternative_2';
+  isExisting?: boolean;
+  existingContactId?: string;
+}
+
+// Utility function to generate unique IDs for phone numbers and emails
+function generateId(): string {
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+// Utility function to sanitize phone numbers for OpenPhone format
+function sanitizePhoneNumber(phone: string): string {
+  // Remove all non-digit characters except +
+  let sanitized = phone.replace(/[^\d+]/g, '');
+  
+  // If it starts with + or 00, keep it; otherwise assume it's a US number
+  if (!sanitized.startsWith('+') && !sanitized.startsWith('00')) {
+    // If it doesn't start with 1 and is 10 digits, add country code
+    if (sanitized.length === 10) {
+      sanitized = '+1' + sanitized;
+    } else if (sanitized.length === 11 && sanitized.startsWith('1')) {
+      sanitized = '+' + sanitized;
+    }
+  }
+  
+  return sanitized;
+}
+
+// Main mapping function to convert client to OpenPhone contacts
+export function mapClientToContacts(client: Client): MappedContact[] {
+  const contacts: MappedContact[] = [];
+  
+  // Main client contact
+  const mainContact = mapMainClient(client);
+  if (mainContact) {
+    contacts.push(mainContact);
+  }
+  
+  // Alternative contact 1
+  if (client.contact_1 && client.contact_1_phone && client.relationship_1) {
+    const altContact1 = mapAlternativeContact(client, 1);
+    if (altContact1) {
+      contacts.push(altContact1);
+    }
+  }
+  
+  // Alternative contact 2
+  if (client.contact_2 && client.contact_2_phone && client.relationship_2) {
+    const altContact2 = mapAlternativeContact(client, 2);
+    if (altContact2) {
+      contacts.push(altContact2);
+    }
+  }
+  
+  return contacts;
+}
+
+// Map main client contact
+function mapMainClient(client: Client): MappedContact | null {
+  if (!client.client_name || !client.phone) {
+    return null;
+  }
+  
+  const contact: MappedContact = {
+    openPhoneContact: {
+      defaultFields: {
+        firstName: client.client_name,
+        phoneNumbers: [{
+          name: 'Main Phone',
+          value: sanitizePhoneNumber(client.phone),
+          id: generateId(),
+        }],
+        company: 'Legal Client',
+        role: client.client_type === 'criminal' ? 'Criminal Client' : 'Civil Client',
+      },
+      customFields: [
+        {
+          name: 'Client Type',
+          key: 'client_type',
+          type: 'text',
+          value: client.client_type,
+        },
+        {
+          name: 'Date of Birth',
+          key: 'date_of_birth',
+          type: 'date',
+          value: client.date_of_birth || null,
+        },
+        {
+          name: 'County',
+          key: 'county',
+          type: 'text',
+          value: client.county || null,
+        },
+        {
+          name: 'Intake Date',
+          key: 'intake_date',
+          type: 'date',
+          value: client.date_intake || null,
+        },
+      ],
+      externalId: `client_${client.id}`,
+      source: 'legal-practitioner-app',
+    },
+    clientId: client.id,
+    clientName: client.client_name,
+    contactType: 'main',
+  };
+  
+  // Add email if available
+  if (client.email) {
+    contact.openPhoneContact.defaultFields.emails = [{
+      name: 'Email',
+      value: client.email,
+      id: generateId(),
+    }];
+  }
+  
+  // Add civil-specific custom fields
+  if (client.client_type === 'civil' && client.case_type) {
+    contact.openPhoneContact.customFields?.push({
+      name: 'Case Type',
+      key: 'case_type',
+      type: 'text',
+      value: client.case_type,
+    });
+  }
+  
+  // Add criminal-specific custom fields
+  if (client.client_type === 'criminal') {
+    if (client.arrested) {
+      contact.openPhoneContact.customFields?.push({
+        name: 'Arrested',
+        key: 'arrested',
+        type: 'text',
+        value: 'Yes',
+      });
+    }
+    if (client.currently_incarcerated) {
+      contact.openPhoneContact.customFields?.push({
+        name: 'Incarcerated',
+        key: 'currently_incarcerated',
+        type: 'text',
+        value: 'Yes',
+      });
+    }
+  }
+  
+  return contact;
+}
+
+// Map alternative contact (contact_1 or contact_2)
+function mapAlternativeContact(client: Client, contactNumber: 1 | 2): MappedContact | null {
+  const contactName = contactNumber === 1 ? client.contact_1 : client.contact_2;
+  const contactPhone = contactNumber === 1 ? client.contact_1_phone : client.contact_2_phone;
+  const relationship = contactNumber === 1 ? client.relationship_1 : client.relationship_2;
+  
+  if (!contactName || !contactPhone || !relationship) {
+    return null;
+  }
+  
+  // Generate contact name using the naming convention: "ClientName - Relationship"
+  const openPhoneContactName = `${client.client_name} - ${relationship}`;
+  
+  const contact: MappedContact = {
+    openPhoneContact: {
+      defaultFields: {
+        firstName: openPhoneContactName,
+        phoneNumbers: [{
+          name: `${relationship} Phone`,
+          value: sanitizePhoneNumber(contactPhone),
+          id: generateId(),
+        }],
+        company: 'Legal Client Contact',
+        role: `Alternative Contact (${relationship})`,
+      },
+      customFields: [
+        {
+          name: 'Client Name',
+          key: 'primary_client_name',
+          type: 'text',
+          value: client.client_name,
+        },
+        {
+          name: 'Relationship to Client',
+          key: 'relationship',
+          type: 'text',
+          value: relationship,
+        },
+        {
+          name: 'Contact Person Name',
+          key: 'contact_person_name',
+          type: 'text',
+          value: contactName,
+        },
+        {
+          name: 'Client Type',
+          key: 'client_type',
+          type: 'text',
+          value: client.client_type,
+        },
+        {
+          name: 'Alternative Contact Number',
+          key: 'alt_contact_number',
+          type: 'text',
+          value: contactNumber.toString(),
+        },
+      ],
+      externalId: `client_${client.id}_alt_${contactNumber}`,
+      source: 'legal-practitioner-app',
+    },
+    clientId: client.id,
+    clientName: client.client_name,
+    contactType: contactNumber === 1 ? 'alternative_1' : 'alternative_2',
+  };
+  
+  return contact;
+}
+
+// Validation function for mapped contacts
+export function validateMappedContact(contact: MappedContact): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  
+  // Check required fields
+  if (!contact.openPhoneContact.defaultFields.firstName) {
+    errors.push('Contact name is required');
+  }
+  
+  if (!contact.openPhoneContact.defaultFields.phoneNumbers || 
+      contact.openPhoneContact.defaultFields.phoneNumbers.length === 0) {
+    errors.push('At least one phone number is required');
+  }
+  
+  // Validate phone number format
+  if (contact.openPhoneContact.defaultFields.phoneNumbers) {
+    for (const phone of contact.openPhoneContact.defaultFields.phoneNumbers) {
+      if (!phone.value || phone.value.length < 7) {
+        errors.push(`Invalid phone number: ${phone.value}`);
+      }
+    }
+  }
+  
+  // Validate custom fields
+  if (contact.openPhoneContact.customFields) {
+    for (const field of contact.openPhoneContact.customFields) {
+      if (!field.name || !field.key) {
+        errors.push('Custom field name and key are required');
+      }
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+// Utility function to check if contact data has changed (for incremental sync)
+export function hasContactDataChanged(oldContact: OpenPhoneContact, newContact: MappedContact): boolean {
+  // Simple comparison - in a real implementation, you'd want more sophisticated diffing
+  const oldFirstName = oldContact.defaultFields.firstName;
+  const newFirstName = newContact.openPhoneContact.defaultFields.firstName;
+  
+  if (oldFirstName !== newFirstName) return true;
+  
+  // Compare phone numbers
+  const oldPhones = oldContact.defaultFields.phoneNumbers?.map(p => p.value) || [];
+  const newPhones = newContact.openPhoneContact.defaultFields.phoneNumbers?.map(p => p.value) || [];
+  
+  if (oldPhones.length !== newPhones.length) return true;
+  
+  for (const phone of oldPhones) {
+    if (!newPhones.includes(phone)) return true;
+  }
+  
+  return false;
+}
