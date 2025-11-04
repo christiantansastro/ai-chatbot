@@ -6,11 +6,11 @@
  * including mapping, duplicate detection, error handling, and logging.
  */
 
-import type { Client } from '../db/schema';
-import { mapClientToContacts, type MappedContact, validateMappedContact } from '../openphone-mapping';
-import { getOpenPhoneClient } from '../openphone-client';
-import { getClientDatabaseService } from '../client-database-service';
-import { getDuplicateDetectionService, type DuplicateCheckResult } from '../duplicate-detection-service';
+import type { Client } from './db/schema';
+import { mapClientToContacts, type MappedContact, validateMappedContact } from './openphone-mapping';
+import { getOpenPhoneClient } from './openphone-client';
+import { getClientDatabaseService } from './client-database-service';
+import { getDuplicateDetectionService, type DuplicateCheckResult } from './duplicate-detection-service';
 
 export interface SyncResult {
   success: boolean;
@@ -62,8 +62,39 @@ export class OpenPhoneContactSyncService {
   private progressCallbacks: Array<(progress: SyncProgress) => void> = [];
 
   constructor() {
-    // Initialize services
-    this.clientDbService.initialize(null); // Will be set when database is connected
+    // Initialize services with Supabase client
+    this.initializeDatabaseService();
+  }
+
+  /**
+   * Initialize the database service with proper Supabase connection
+   */
+  private async initializeDatabaseService(): Promise<void> {
+    try {
+      // Import database factory and service dynamically to avoid circular dependencies
+      const { databaseFactory, databaseService, DatabaseConfigLoader } = await import('./db/database-factory');
+      
+      // Initialize database service if not already done
+      if (!databaseFactory.isConnected()) {
+        console.log('🔄 Initializing database connection...');
+        const config = DatabaseConfigLoader.loadFromEnvironment();
+        await databaseFactory.initialize(config);
+      }
+      
+      // Get the adapter from the factory
+      const adapter = databaseFactory.getAdapter();
+      
+      if (adapter && (adapter.supabase || adapter.serviceSupabase)) {
+        // Initialize client database service with both regular and service role clients
+        this.clientDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
+        console.log('✅ Database service initialized successfully');
+      } else {
+        console.warn('⚠️ Database service initialized but no Supabase client available');
+      }
+    } catch (error) {
+      console.error('❌ Failed to initialize database service:', error);
+      // Don't throw here - let the sync attempt fail gracefully during validation
+    }
   }
 
   /**
@@ -369,7 +400,9 @@ export class OpenPhoneContactSyncService {
       // Update duplicate detection cache
       this.duplicateService.updateCache([createdContact]);
       
-      return { action: 'created', contactId: createdContact.id };
+      // createdContact may not have a strongly-typed 'id' property on OpenPhoneContact,
+      // cast to any to safely read the id if provided by the client implementation.
+      return { action: 'created', contactId: (createdContact as any).id };
     } catch (error) {
       console.error(`Failed to create contact for ${mappedContact.clientName}:`, error);
       return { action: 'skipped' };
@@ -460,6 +493,9 @@ export class OpenPhoneContactSyncService {
     }
 
     try {
+      // Ensure database service is initialized first
+      await this.ensureDatabaseInitialized();
+      
       const dbTest = await this.clientDbService.testConnection();
       databaseConnection = dbTest.isConnected;
       if (!databaseConnection) {
@@ -484,6 +520,50 @@ export class OpenPhoneContactSyncService {
       sampleClients,
       errors,
     };
+  }
+
+  /**
+   * Ensure database service is properly initialized
+   */
+  private async ensureDatabaseInitialized(): Promise<void> {
+    // Check if already initialized by testing the connection
+    try {
+      await this.clientDbService.testConnection();
+      return; // Already initialized
+    } catch (error) {
+      // Not initialized, try to initialize using databaseService
+      console.log('🔄 Initializing database service...');
+      
+      try {
+        // Import databaseService directly and initialize it
+        const { databaseService, databaseFactory } = await import('./db/database-factory');
+        await databaseService.initialize(); // This will auto-load config from environment
+        
+        // Wait a moment for initialization to complete
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Get the adapter and extract Supabase clients
+        const adapter = databaseFactory.getAdapter();
+        
+        if (adapter && (adapter.supabase || adapter.serviceSupabase)) {
+          // Initialize client database service with both regular and service role clients
+          this.clientDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
+          console.log('✅ Database service initialized successfully');
+        } else {
+          throw new Error('Failed to get Supabase clients from adapter');
+        }
+        
+        // Test the connection
+        const dbTest = await this.clientDbService.testConnection();
+        if (!dbTest.isConnected) {
+          throw new Error(`Database connection test failed: ${dbTest.error}`);
+        }
+        
+      } catch (initError) {
+        console.error('❌ Failed to initialize database:', initError);
+        throw new Error(`Database initialization failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`);
+      }
+    }
   }
 }
 

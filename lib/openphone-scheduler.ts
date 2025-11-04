@@ -5,8 +5,8 @@
  * It manages the automatic sync process and provides monitoring capabilities.
  */
 
-import { getSyncService, type SyncResult } from '../openphone-sync-service';
-import { getClientDatabaseService } from '../client-database-service';
+import { getSyncService, type SyncResult } from './openphone-sync-service';
+import { getClientDatabaseService } from './client-database-service';
 
 export interface SyncJobConfig {
   enabled: boolean;
@@ -222,7 +222,7 @@ export class OpenPhoneSyncScheduler {
 
       // Send failure notification
       if (this.config.notifications.onFailure) {
-        this.sendNotification('failure', null, errorMessage);
+        this.sendNotification('failure', undefined, errorMessage);
       }
 
       throw error;

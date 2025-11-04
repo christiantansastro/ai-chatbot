@@ -58,7 +58,7 @@ export class ClientDatabaseService {
       const client = this.serviceClient || this.supabase;
       
       let query = client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact' })
         .order('updated_at', { ascending: false });
 
@@ -132,7 +132,7 @@ export class ClientDatabaseService {
       const client = this.serviceClient || this.supabase;
       
       const { data, error } = await client
-        .from('Client')
+        .from('clients')
         .select('*')
         .eq('id', clientId)
         .single();
@@ -262,28 +262,28 @@ export class ClientDatabaseService {
 
       // Get basic counts
       const { count: totalClients } = await client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact', head: true });
 
       const { count: criminalClients } = await client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact', head: true })
         .eq('client_type', 'criminal');
 
       const { count: civilClients } = await client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact', head: true })
         .eq('client_type', 'civil');
 
       // Get clients with alternative contacts (this is a simplified query)
       // In practice, you might want to use a more efficient approach
       const { count: clientsWithAlternativeContacts } = await client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact', head: true })
         .not('contact_1', 'is', null);
 
       const { count: recentlyUpdated } = await client
-        .from('Client')
+        .from('clients')
         .select('*', { count: 'exact', head: true })
         .gte('updated_at', yesterday.toISOString());
 
@@ -311,7 +311,7 @@ export class ClientDatabaseService {
 
       // Test basic connection
       const { data, error } = await this.serviceClient
-        .from('Client')
+        .from('clients')
         .select('id')
         .limit(1);
 

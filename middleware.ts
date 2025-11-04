@@ -34,6 +34,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow OpenPhone sync API routes without authentication for system operations
+  if (pathname.startsWith("/api/openphone-sync")) {
+    return NextResponse.next();
+  }
+
   // Ensure database is initialized for middleware
   await ensureMiddlewareDbInitialized();
 

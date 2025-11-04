@@ -11,7 +11,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSyncService } from '../../../../lib/openphone-sync-service';
 import { getSyncScheduler } from '../../../../lib/openphone-scheduler';
-import { getClientDatabaseService } from '../../../../lib/client-database-service';
 
 export async function GET(request: NextRequest) {
   try {
