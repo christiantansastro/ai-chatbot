@@ -1,4 +1,5 @@
 import { parsePhoneNumberFromString } from "libphonenumber-js";
+import type { CountryCode } from "libphonenumber-js";
 
 export interface NormalizedPhoneNumber {
   e164: string;
@@ -6,7 +7,17 @@ export interface NormalizedPhoneNumber {
   raw: string;
 }
 
-const DEFAULT_REGION = process.env.NEXT_PUBLIC_PHONE_DEFAULT_REGION || "US";
+const DEFAULT_REGION = toCountryCode(
+  process.env.NEXT_PUBLIC_PHONE_DEFAULT_REGION,
+) || ("US" as CountryCode);
+
+function toCountryCode(code?: string): CountryCode | undefined {
+  if (!code) {
+    return undefined;
+  }
+  const normalized = code.trim().toUpperCase();
+  return normalized ? (normalized as CountryCode) : undefined;
+}
 
 /**
  * Normalize a phone number using libphonenumber-js. Returns null when the value
@@ -14,7 +25,7 @@ const DEFAULT_REGION = process.env.NEXT_PUBLIC_PHONE_DEFAULT_REGION || "US";
  */
 export function normalizePhoneNumber(
   input: string,
-  region: string = DEFAULT_REGION,
+  region?: string,
 ): NormalizedPhoneNumber | null {
   if (!input) {
     return null;
@@ -25,9 +36,12 @@ export function normalizePhoneNumber(
     return null;
   }
 
-  try {
-    const parsed = parsePhoneNumberFromString(trimmed, region);
+  const countryCode = toCountryCode(region) ?? DEFAULT_REGION;
 
+  try {
+    const parsed = countryCode
+      ? parsePhoneNumberFromString(trimmed, countryCode)
+      : parsePhoneNumberFromString(trimmed);
     if (!parsed || !parsed.isValid()) {
       return null;
     }
