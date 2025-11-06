@@ -1,4 +1,5 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server-client";
+import { normalizePhoneNumberForStorage } from "@/lib/utils/phone";
 
 export interface CreateClientData {
   client_name: string;
@@ -75,6 +76,20 @@ const sanitizeCurrency = (value?: string | null): number | null => {
   return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 };
 
+const standardizePhone = (value?: string | null): string | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalized = normalizePhoneNumberForStorage(trimmed);
+  return normalized ?? trimmed;
+};
+
 export async function createClientRecord(
   clientData: CreateClientData,
   options: CreateClientOptions = { includeFinancialTransactions: true }
@@ -85,15 +100,15 @@ export async function createClientRecord(
     client_name: clientData.client_name,
     client_type: clientData.client_type || undefined,
     email: clientData.email || undefined,
-    phone: clientData.phone || undefined,
+    phone: standardizePhone(clientData.phone),
     address: clientData.address || undefined,
     date_of_birth: clientData.date_of_birth || undefined,
     date_intake: clientData.date_intake || undefined,
     contact_1: clientData.contact_1 || undefined,
-    contact_1_phone: clientData.contact_1_phone || undefined,
+    contact_1_phone: standardizePhone(clientData.contact_1_phone),
     relationship_1: clientData.relationship_1 || undefined,
     contact_2: clientData.contact_2 || undefined,
-    contact_2_phone: clientData.contact_2_phone || undefined,
+    contact_2_phone: standardizePhone(clientData.contact_2_phone),
     relationship_2: clientData.relationship_2 || undefined,
     notes: clientData.notes || undefined,
     county: clientData.county || undefined,
