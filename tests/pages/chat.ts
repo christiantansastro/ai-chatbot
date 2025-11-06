@@ -19,6 +19,20 @@ export class ChatPage {
     await this.page.goto("/");
   }
 
+  async chooseModelFromSelector(modelId: string) {
+    const trigger = this.page.getByTestId("model-selector");
+    await trigger.click();
+    const option = this.page.getByTestId(`model-selector-item-${modelId}`);
+    await option.waitFor({ state: "visible" });
+    await option.click();
+  }
+
+  async getSelectedModel() {
+    const trigger = this.page.getByTestId("model-selector");
+    const text = await trigger.innerText();
+    return text.trim();
+  }
+
   async sendUserMessage(message: string) {
     await this.inputBox.fill(message);
     await this.sendButton.click();
