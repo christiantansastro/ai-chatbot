@@ -17,6 +17,7 @@ import {
 // Update the import path if the Tabs components are located elsewhere, for example:
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { createClientAction } from "@/app/(chat)/actions";
+import { normalizePhoneNumber } from "@/lib/utils/phone";
 
 interface ClientFormData {
   // Common fields
@@ -156,6 +157,16 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
 
     if (!formData.phone.trim()) {
       newErrors.phone = "Phone number is required";
+    } else if (!normalizePhoneNumber(formData.phone)) {
+      newErrors.phone = "Enter a valid phone number including area code";
+    }
+
+    if (formData.contact_1_phone && !normalizePhoneNumber(formData.contact_1_phone)) {
+      newErrors.contact_1_phone = "Enter a valid phone number";
+    }
+
+    if (formData.contact_2_phone && !normalizePhoneNumber(formData.contact_2_phone)) {
+      newErrors.contact_2_phone = "Enter a valid phone number";
     }
 
     // DOB is required for criminal cases, optional for civil
@@ -199,12 +210,18 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
     setSubmitMessage(null);
 
     try {
+      const normalizedClientPhone = normalizePhoneNumber(formData.phone);
+
+      if (!normalizedClientPhone) {
+        throw new Error("Unable to normalize client phone number");
+      }
+
       // Prepare data for submission (exclude empty fields)
       const submissionData: any = {
-        client_name: formData.client_name,
+        client_name: formData.client_name.trim(),
         client_type: formData.client_type,
-        email: formData.email,
-        phone: formData.phone,
+        email: formData.email.trim(),
+        phone: normalizedClientPhone.e164,
       };
 
       // Add optional fields only if they have values
@@ -212,10 +229,20 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
       if (formData.address) submissionData.address = formData.address;
       if (formData.contact_1) submissionData.contact_1 = formData.contact_1;
       if (formData.relationship_1) submissionData.relationship_1 = formData.relationship_1;
-      if (formData.contact_1_phone) submissionData.contact_1_phone = formData.contact_1_phone;
+      if (formData.contact_1_phone) {
+        const normalizedContact1Phone = normalizePhoneNumber(formData.contact_1_phone);
+        if (normalizedContact1Phone) {
+          submissionData.contact_1_phone = normalizedContact1Phone.e164;
+        }
+      }
       if (formData.contact_2) submissionData.contact_2 = formData.contact_2;
       if (formData.relationship_2) submissionData.relationship_2 = formData.relationship_2;
-      if (formData.contact_2_phone) submissionData.contact_2_phone = formData.contact_2_phone;
+      if (formData.contact_2_phone) {
+        const normalizedContact2Phone = normalizePhoneNumber(formData.contact_2_phone);
+        if (normalizedContact2Phone) {
+          submissionData.contact_2_phone = normalizedContact2Phone.e164;
+        }
+      }
       if (formData.notes) submissionData.notes = formData.notes;
       if (formData.county) submissionData.county = formData.county;
       if (formData.court_date) submissionData.court_date = formData.court_date;
@@ -439,7 +466,11 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             value={formData.contact_1_phone}
             onChange={(e) => handleInputChange("contact_1_phone", e.target.value)}
             placeholder="(555) 123-4567"
+            className={errors.contact_1_phone ? "border-destructive" : ""}
           />
+          {errors.contact_1_phone && (
+            <p className="text-sm text-destructive mt-1">{errors.contact_1_phone}</p>
+          )}
         </div>
       </div>
 
@@ -471,7 +502,11 @@ export function ClientIntakeModal({ children }: ClientIntakeModalProps) {
             value={formData.contact_2_phone}
             onChange={(e) => handleInputChange("contact_2_phone", e.target.value)}
             placeholder="(555) 123-4567"
+            className={errors.contact_2_phone ? "border-destructive" : ""}
           />
+          {errors.contact_2_phone && (
+            <p className="text-sm text-destructive mt-1">{errors.contact_2_phone}</p>
+          )}
         </div>
       </div>
 

@@ -11,6 +11,7 @@ import { mapClientToContacts, type MappedContact, validateMappedContact } from '
 import { getOpenPhoneClient } from './openphone-client';
 import { getClientDatabaseService } from './client-database-service';
 import { getDuplicateDetectionService, type DuplicateCheckResult } from './duplicate-detection-service';
+import { databaseService, databaseFactory } from './db/database-factory';
 
 export interface SyncResult {
   success: boolean;
@@ -71,17 +72,14 @@ export class OpenPhoneContactSyncService {
    */
   private async initializeDatabaseService(): Promise<void> {
     try {
-      // Import database factory and service dynamically to avoid circular dependencies
-      const { databaseFactory, databaseService, DatabaseConfigLoader } = await import('./db/database-factory');
+      // Force initialization of the database singleton
+      console.log('🔄 Initializing database connection...');
       
-      // Initialize database service if not already done
-      if (!databaseFactory.isConnected()) {
-        console.log('🔄 Initializing database connection...');
-        const config = DatabaseConfigLoader.loadFromEnvironment();
-        await databaseFactory.initialize(config);
-      }
+      // Trigger the lazy initialization by calling health check
+      const healthCheck = await databaseService.healthCheck();
+      console.log('Database health check:', healthCheck);
       
-      // Get the adapter from the factory
+      // Get the adapter directly from the singleton
       const adapter = databaseFactory.getAdapter();
       
       if (adapter && (adapter.supabase || adapter.serviceSupabase)) {
@@ -531,16 +529,13 @@ export class OpenPhoneContactSyncService {
       await this.clientDbService.testConnection();
       return; // Already initialized
     } catch (error) {
-      // Not initialized, try to initialize using databaseService
+      // Not initialized, reinitialize using the singleton instances
       console.log('🔄 Initializing database service...');
       
       try {
-        // Import databaseService directly and initialize it
-        const { databaseService, databaseFactory } = await import('./db/database-factory');
-        await databaseService.initialize(); // This will auto-load config from environment
-        
-        // Wait a moment for initialization to complete
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Force initialization by calling health check directly on singleton
+        const healthCheck = await databaseService.healthCheck();
+        console.log('Database health check result:', healthCheck);
         
         // Get the adapter and extract Supabase clients
         const adapter = databaseFactory.getAdapter();
@@ -549,14 +544,14 @@ export class OpenPhoneContactSyncService {
           // Initialize client database service with both regular and service role clients
           this.clientDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
           console.log('✅ Database service initialized successfully');
+          
+          // Test the connection
+          const dbTest = await this.clientDbService.testConnection();
+          if (!dbTest.isConnected) {
+            throw new Error(`Database connection test failed: ${dbTest.error}`);
+          }
         } else {
           throw new Error('Failed to get Supabase clients from adapter');
-        }
-        
-        // Test the connection
-        const dbTest = await this.clientDbService.testConnection();
-        if (!dbTest.isConnected) {
-          throw new Error(`Database connection test failed: ${dbTest.error}`);
         }
         
       } catch (initError) {

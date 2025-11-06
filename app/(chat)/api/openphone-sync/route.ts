@@ -1,6 +1,6 @@
 /**
  * OpenPhone Sync API Routes
- * 
+ *
  * These API routes provide endpoints for:
  * - Triggering manual sync operations
  * - Monitoring sync status and progress
@@ -11,9 +11,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSyncService } from '../../../../lib/openphone-sync-service';
 import { getSyncScheduler } from '../../../../lib/openphone-scheduler';
+import { databaseService, databaseFactory } from '../../../../lib/db/database-factory';
+
+// Ensure database is initialized before handling requests
+let dbInitialized = false;
+
+async function ensureDatabaseInitialized() {
+  if (dbInitialized) return;
+  
+  try {
+    console.log('🔄 Initializing database for API route...');
+    
+    // Force initialization by calling health check
+    await databaseService.healthCheck();
+    
+    dbInitialized = true;
+    console.log('✅ Database initialized successfully for API route');
+  } catch (error) {
+    console.error('❌ Failed to initialize database for API route:', error);
+    // Continue anyway - let the sync service handle the error
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
+    await ensureDatabaseInitialized();
+    
     const { searchParams } = new URL(request.url);
     const action = searchParams.get('action') || 'status';
 
@@ -72,6 +95,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureDatabaseInitialized();
+    
     const body = await request.json();
     const { action, options } = body;
 
@@ -162,7 +187,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error in POST /api/openphone-sync:', error);
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error',
         message: 'Sync operation failed'
@@ -174,6 +199,8 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    await ensureDatabaseInitialized();
+    
     const body = await request.json();
     const { action, config } = body;
 

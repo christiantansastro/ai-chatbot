@@ -102,8 +102,8 @@ export class OpenPhoneAPIClient {
    * Make an authenticated request to the OpenPhone API
    */
   private async makeRequest<T>(
-    endpoint: string, 
-    method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
+    endpoint: string,
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'GET',
     data?: any,
     retryCount: number = 0
   ): Promise<T> {
@@ -112,7 +112,7 @@ export class OpenPhoneAPIClient {
 
     const url = `${this.baseUrl}/v1${endpoint}`;
     const headers = {
-      'Authorization': `Bearer ${this.apiKey}`,
+      'Authorization': `${this.apiKey}`,
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
@@ -280,7 +280,19 @@ export class OpenPhoneAPIClient {
         data: OpenPhoneContact[];
       }>(`/contacts?externalId=${encodeURIComponent(externalId)}`);
 
-      return response.data && response.data.length > 0 ? response.data[0] : null;
+      const matchingContact = response.data?.find(
+        contact => contact.externalId === externalId
+      );
+
+      if (!matchingContact && response.data && response.data.length > 0) {
+        console.warn(
+          `External ID lookup returned non-matching contact(s). Requested="${externalId}", received=${response.data
+            .map(contact => contact.externalId || 'undefined')
+            .join(', ')}`
+        );
+      }
+
+      return matchingContact || null;
     } catch (error) {
       // If contact not found, return null
       if (error instanceof Error && 'status' in error && (error as any).status === 404) {
@@ -302,7 +314,7 @@ export class OpenPhoneAPIClient {
    * Update an existing contact
    */
   async updateContact(contactId: string, contactData: ContactUpdateRequest): Promise<OpenPhoneContact> {
-    const response = await this.makeRequest<OpenPhoneContactResponse>(`/contacts/${contactId}`, 'PUT', contactData);
+    const response = await this.makeRequest<OpenPhoneContactResponse>(`/contacts/${contactId}`, 'PATCH', contactData);
     return response.data;
   }
 

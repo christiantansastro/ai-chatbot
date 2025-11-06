@@ -9,8 +9,10 @@ export interface CreateClientData {
   date_of_birth?: string;
   date_intake?: string;
   contact_1?: string;
+  contact_1_phone?: string;
   relationship_1?: string;
   contact_2?: string;
+  contact_2_phone?: string;
   relationship_2?: string;
   notes?: string;
   county?: string;
@@ -88,8 +90,10 @@ export async function createClientRecord(
     date_of_birth: clientData.date_of_birth || undefined,
     date_intake: clientData.date_intake || undefined,
     contact_1: clientData.contact_1 || undefined,
+    contact_1_phone: clientData.contact_1_phone || undefined,
     relationship_1: clientData.relationship_1 || undefined,
     contact_2: clientData.contact_2 || undefined,
+    contact_2_phone: clientData.contact_2_phone || undefined,
     relationship_2: clientData.relationship_2 || undefined,
     notes: clientData.notes || undefined,
     county: clientData.county || undefined,

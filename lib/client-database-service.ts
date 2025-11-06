@@ -190,7 +190,7 @@ export class ClientDatabaseService {
   }
 
   /**
-   * Validate client data integrity
+   * Validate client data integrity (flexible validation)
    */
   async validateClientData(client: Client): Promise<{ isValid: boolean; errors: string[] }> {
     const errors: string[] = [];
@@ -204,34 +204,37 @@ export class ClientDatabaseService {
       errors.push('Client type must be either "criminal" or "civil"');
     }
 
-    if (!client.phone) {
-      errors.push('Phone number is required');
+    // Phone number is now optional - we'll validate it only if present
+    if (client.phone && client.phone.trim() !== '') {
+      const phoneDigits = client.phone.replace(/\D/g, '');
+      if (phoneDigits.length < 7) {
+        errors.push('Main phone number appears to be invalid');
+      }
     }
 
-    // Validate alternative contacts if present
+    // Alternative contacts are truly optional - only validate if they have data
     if (client.contact_1 || client.contact_1_phone || client.relationship_1) {
       if (!client.contact_1 || !client.contact_1_phone || !client.relationship_1) {
         errors.push('Alternative contact 1 requires name, phone, and relationship');
+      } else {
+        // Validate phone number for alt contact 1 if provided
+        const phoneDigits = client.contact_1_phone.replace(/\D/g, '');
+        if (phoneDigits.length < 7) {
+          errors.push('Alternative contact 1 phone number appears to be invalid');
+        }
       }
     }
 
     if (client.contact_2 || client.contact_2_phone || client.relationship_2) {
       if (!client.contact_2 || !client.contact_2_phone || !client.relationship_2) {
         errors.push('Alternative contact 2 requires name, phone, and relationship');
+      } else {
+        // Validate phone number for alt contact 2 if provided
+        const phoneDigits = client.contact_2_phone.replace(/\D/g, '');
+        if (phoneDigits.length < 7) {
+          errors.push('Alternative contact 2 phone number appears to be invalid');
+        }
       }
-    }
-
-    // Validate phone number format (basic)
-    if (client.phone && client.phone.replace(/\D/g, '').length < 7) {
-      errors.push('Main phone number appears to be invalid');
-    }
-
-    if (client.contact_1_phone && client.contact_1_phone.replace(/\D/g, '').length < 7) {
-      errors.push('Alternative contact 1 phone number appears to be invalid');
-    }
-
-    if (client.contact_2_phone && client.contact_2_phone.replace(/\D/g, '').length < 7) {
-      errors.push('Alternative contact 2 phone number appears to be invalid');
     }
 
     // Validate email format if present

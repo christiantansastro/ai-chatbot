@@ -63,53 +63,158 @@ export interface MappedContact {
   existingContactId?: string;
 }
 
+// OpenPhone custom field keys can vary by workspace. Expose environment-based overrides
+const CUSTOM_FIELD_KEYS = {
+  clientType: process.env.OPENPHONE_CF_CLIENT_TYPE_KEY,
+  dateOfBirth: process.env.OPENPHONE_CF_DATE_OF_BIRTH_KEY,
+  county: process.env.OPENPHONE_CF_COUNTY_KEY,
+  intakeDate: process.env.OPENPHONE_CF_INTAKE_DATE_KEY,
+  caseType: process.env.OPENPHONE_CF_CASE_TYPE_KEY,
+  arrested: process.env.OPENPHONE_CF_ARRESTED_KEY,
+  currentlyIncarcerated: process.env.OPENPHONE_CF_CURRENTLY_INCARCERATED_KEY,
+  primaryClientName: process.env.OPENPHONE_CF_PRIMARY_CLIENT_NAME_KEY,
+  relationship: process.env.OPENPHONE_CF_RELATIONSHIP_KEY,
+  contactPersonName: process.env.OPENPHONE_CF_CONTACT_PERSON_NAME_KEY,
+  alternativeContactNumber: process.env.OPENPHONE_CF_ALT_CONTACT_NUMBER_KEY,
+};
+
 // Utility function to generate unique IDs for phone numbers and emails
 function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-// Utility function to sanitize phone numbers for OpenPhone format
-function sanitizePhoneNumber(phone: string): string {
+// Utility function to validate phone numbers
+function isValidPhoneNumber(phone: string): boolean {
+  if (!phone || typeof phone !== 'string') {
+    return false;
+  }
+  
+  // Pre-filter: Check for clearly invalid values first
+  const trimmedPhone = phone.trim().toUpperCase();
+  
+  // Filter out clearly invalid values
+  const invalidValues = ['N/A', 'NA', 'X', 'NONE', 'NULL', '', 'TBD', 'TBA'];
+  if (invalidValues.includes(trimmedPhone)) {
+    return false;
+  }
+  
+  // Remove all non-digit characters for validation
+  const digits = phone.replace(/\D/g, '');
+  
+  // Check for valid length (10-15 digits for most countries)
+  if (digits.length < 10 || digits.length > 15) {
+    return false;
+  }
+  
+  // Check for valid format patterns (allow +, digits, spaces, dashes, parentheses, dots)
+  const phonePattern = /^[+]?[\d\s\-().]+$/;
+  if (!phonePattern.test(phone)) {
+    return false;
+  }
+  
+  // Check for at least one digit
+  if (!/\d/.test(phone)) {
+    return false;
+  }
+  
+  // Additional validation: ensure we have at least some non-digit separators or proper formatting
+  // This helps catch edge cases like "1234567890abc"
+  const hasValidFormat = /^[+]?[0-9\s\-().]*$/.test(phone);
+  if (!hasValidFormat) {
+    return false;
+  }
+  
+  return true;
+}
+
+// Utility function to standardize phone numbers for OpenPhone format
+function standardizePhoneNumber(phone: string): string {
+  if (!phone || typeof phone !== 'string') {
+    return '';
+  }
+  
+  // Pre-filter: Check for clearly invalid values and return empty string
+  const trimmedPhone = phone.trim().toUpperCase();
+  
+  // Filter out clearly invalid values
+  const invalidValues = ['N/A', 'NA', 'X', 'NONE', 'NULL', '', 'TBD', 'TBA'];
+  if (invalidValues.includes(trimmedPhone)) {
+    return '';
+  }
+  
   // Remove all non-digit characters except +
   let sanitized = phone.replace(/[^\d+]/g, '');
   
-  // If it starts with + or 00, keep it; otherwise assume it's a US number
-  if (!sanitized.startsWith('+') && !sanitized.startsWith('00')) {
-    // If it doesn't start with 1 and is 10 digits, add country code
-    if (sanitized.length === 10) {
-      sanitized = '+1' + sanitized;
-    } else if (sanitized.length === 11 && sanitized.startsWith('1')) {
-      sanitized = '+' + sanitized;
+  // Handle international format
+  if (sanitized.startsWith('+')) {
+    // Ensure proper formatting for international numbers
+    return sanitized.replace(/\+/, '+').replace(/\+/g, '+');
+  }
+  
+  // Handle 00 prefix (international without +)
+  if (sanitized.startsWith('00')) {
+    return '+' + sanitized.substring(2);
+  }
+  
+  // Handle US/Canada numbers (10 digits)
+  if (sanitized.length === 10) {
+    // Check if it looks like a valid US format (starts with 2-9 for area code)
+    const areaCode = sanitized.substring(0, 3);
+    if (parseInt(areaCode.charAt(0)) >= 2) {
+      return '+1' + sanitized;
     }
+  }
+  // Handle US numbers with country code (11 digits starting with 1)
+  else if (sanitized.length === 11 && sanitized.startsWith('1')) {
+    return '+' + sanitized;
+  }
+  // Handle other numbers without country code (assume international if 11+ digits)
+  else if (sanitized.length >= 11) {
+    // For international numbers without country code, we'll assume they're already complete
+    return sanitized;
+  }
+  // Handle extension numbers or partial numbers (reject)
+  else if (sanitized.length < 7) {
+    return ''; // Too short, likely extension or invalid
   }
   
   return sanitized;
+}
+
+// Legacy function for backward compatibility
+function sanitizePhoneNumber(phone: string): string {
+  return standardizePhoneNumber(phone);
 }
 
 // Main mapping function to convert client to OpenPhone contacts
 export function mapClientToContacts(client: Client): MappedContact[] {
   const contacts: MappedContact[] = [];
   
-  // Main client contact
+  // MANDATORY VALIDATION RULE: Create main client contact ONLY if valid phone number exists
   const mainContact = mapMainClient(client);
   if (mainContact) {
+    // Main client has valid phone number, add to contacts
     contacts.push(mainContact);
-  }
-  
-  // Alternative contact 1
-  if (client.contact_1 && client.contact_1_phone && client.relationship_1) {
-    const altContact1 = mapAlternativeContact(client, 1);
-    if (altContact1) {
-      contacts.push(altContact1);
+    
+    // Now process alternative contacts (only if main client contact was created)
+    // Alternative contact 1 - only if valid phone number exists
+    if (client.contact_1 && client.contact_1_phone && client.relationship_1) {
+      const altContact1 = mapAlternativeContact(client, 1);
+      if (altContact1) {
+        contacts.push(altContact1);
+      }
     }
-  }
-  
-  // Alternative contact 2
-  if (client.contact_2 && client.contact_2_phone && client.relationship_2) {
-    const altContact2 = mapAlternativeContact(client, 2);
-    if (altContact2) {
-      contacts.push(altContact2);
+    
+    // Alternative contact 2 - only if valid phone number exists
+    if (client.contact_2 && client.contact_2_phone && client.relationship_2) {
+      const altContact2 = mapAlternativeContact(client, 2);
+      if (altContact2) {
+        contacts.push(altContact2);
+      }
     }
+  } else {
+    // Main client has no valid phone number - skip ALL contacts including alternatives
+    console.log(`Skipping client ${client.client_name} and all alternative contacts due to missing/invalid main phone number`);
   }
   
   return contacts;
@@ -117,48 +222,100 @@ export function mapClientToContacts(client: Client): MappedContact[] {
 
 // Map main client contact
 function mapMainClient(client: Client): MappedContact | null {
-  if (!client.client_name || !client.phone) {
+  // MANDATORY: Main client contact requires valid phone number
+  if (!client.client_name) {
+    console.log(`Main client missing client name`);
     return null;
   }
   
+  // Check for valid phone number - this is the gatekeeper
+  if (!client.phone || !isValidPhoneNumber(client.phone)) {
+    const phoneInfo = client.phone || 'N/A';
+    const stdPhoneForLog = standardizePhoneNumber(client.phone || '');
+    console.log(`Main client ${client.client_name} - Raw: "${phoneInfo}", Standardized: "${stdPhoneForLog}" - INVALID`);
+    return null;
+  }
+  
+  // Validate that phone number can be properly standardized for API
+  const mainPhoneStandardized = standardizePhoneNumber(client.phone);
+  if (!mainPhoneStandardized) {
+    console.log(`Main client ${client.client_name} phone number cannot be standardized: "${client.phone}"`);
+    return null;
+  }
+  
+  const customFields: NonNullable<ContactCreationRequest['customFields']> = [];
+
+  if (CUSTOM_FIELD_KEYS.clientType && client.client_type) {
+    customFields.push({
+      name: 'Client Type',
+      key: CUSTOM_FIELD_KEYS.clientType,
+      type: 'text',
+      value: client.client_type,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.dateOfBirth && client.date_of_birth) {
+    customFields.push({
+      name: 'Date of Birth',
+      key: CUSTOM_FIELD_KEYS.dateOfBirth,
+      type: 'date',
+      value: client.date_of_birth,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.county && client.county) {
+    customFields.push({
+      name: 'County',
+      key: CUSTOM_FIELD_KEYS.county,
+      type: 'text',
+      value: client.county,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.intakeDate && client.date_intake) {
+    customFields.push({
+      name: 'Intake Date',
+      key: CUSTOM_FIELD_KEYS.intakeDate,
+      type: 'date',
+      value: client.date_intake,
+    });
+  }
+
+  if (client.client_type === 'civil' && CUSTOM_FIELD_KEYS.caseType && client.case_type) {
+    customFields.push({
+      name: 'Case Type',
+      key: CUSTOM_FIELD_KEYS.caseType,
+      type: 'text',
+      value: client.case_type,
+    });
+  }
+
+  if (client.client_type === 'criminal') {
+    if (CUSTOM_FIELD_KEYS.arrested && client.arrested) {
+      customFields.push({
+        name: 'Arrested',
+        key: CUSTOM_FIELD_KEYS.arrested,
+        type: 'text',
+        value: 'Yes',
+      });
+    }
+    if (CUSTOM_FIELD_KEYS.currentlyIncarcerated && client.currently_incarcerated) {
+      customFields.push({
+        name: 'Incarcerated',
+        key: CUSTOM_FIELD_KEYS.currentlyIncarcerated,
+        type: 'text',
+        value: 'Yes',
+      });
+    }
+  }
+
   const contact: MappedContact = {
     openPhoneContact: {
       defaultFields: {
         firstName: client.client_name,
-        phoneNumbers: [{
-          name: 'Main Phone',
-          value: sanitizePhoneNumber(client.phone),
-          id: generateId(),
-        }],
         company: 'Legal Client',
         role: client.client_type === 'criminal' ? 'Criminal Client' : 'Civil Client',
       },
-      customFields: [
-        {
-          name: 'Client Type',
-          key: 'client_type',
-          type: 'text',
-          value: client.client_type,
-        },
-        {
-          name: 'Date of Birth',
-          key: 'date_of_birth',
-          type: 'date',
-          value: client.date_of_birth || null,
-        },
-        {
-          name: 'County',
-          key: 'county',
-          type: 'text',
-          value: client.county || null,
-        },
-        {
-          name: 'Intake Date',
-          key: 'intake_date',
-          type: 'date',
-          value: client.date_intake || null,
-        },
-      ],
       externalId: `client_${client.id}`,
       source: 'legal-practitioner-app',
     },
@@ -166,6 +323,17 @@ function mapMainClient(client: Client): MappedContact | null {
     clientName: client.client_name,
     contactType: 'main',
   };
+
+  if (customFields.length > 0) {
+    contact.openPhoneContact.customFields = customFields;
+  }
+  
+  // Add valid phone number (validated and standardized above)
+  contact.openPhoneContact.defaultFields.phoneNumbers = [{
+    name: 'Main Phone',
+    value: mainPhoneStandardized,
+    id: generateId(),
+  }];
   
   // Add email if available
   if (client.email) {
@@ -174,36 +342,6 @@ function mapMainClient(client: Client): MappedContact | null {
       value: client.email,
       id: generateId(),
     }];
-  }
-  
-  // Add civil-specific custom fields
-  if (client.client_type === 'civil' && client.case_type) {
-    contact.openPhoneContact.customFields?.push({
-      name: 'Case Type',
-      key: 'case_type',
-      type: 'text',
-      value: client.case_type,
-    });
-  }
-  
-  // Add criminal-specific custom fields
-  if (client.client_type === 'criminal') {
-    if (client.arrested) {
-      contact.openPhoneContact.customFields?.push({
-        name: 'Arrested',
-        key: 'arrested',
-        type: 'text',
-        value: 'Yes',
-      });
-    }
-    if (client.currently_incarcerated) {
-      contact.openPhoneContact.customFields?.push({
-        name: 'Incarcerated',
-        key: 'currently_incarcerated',
-        type: 'text',
-        value: 'Yes',
-      });
-    }
   }
   
   return contact;
@@ -215,57 +353,83 @@ function mapAlternativeContact(client: Client, contactNumber: 1 | 2): MappedCont
   const contactPhone = contactNumber === 1 ? client.contact_1_phone : client.contact_2_phone;
   const relationship = contactNumber === 1 ? client.relationship_1 : client.relationship_2;
   
+  // MANDATORY: Alternative contacts are optional but require ALL fields AND valid phone number
   if (!contactName || !contactPhone || !relationship) {
+    console.log(`Alternative contact ${contactNumber} for ${client.client_name} missing required data: name="${contactName}", phone="${contactPhone}", relationship="${relationship}"`);
+    return null;
+  }
+  
+  // MANDATORY: Phone number validation - must be valid to create alternative contact
+  if (!isValidPhoneNumber(contactPhone)) {
+    const altPhoneForLog = standardizePhoneNumber(contactPhone);
+    console.log(`Alternative contact ${contactNumber} for ${client.client_name} - Raw: "${contactPhone}", Standardized: "${altPhoneForLog}" - INVALID`);
+    return null;
+  }
+  
+  // Validate that phone number can be properly standardized for API
+  const altPhoneStandardized = standardizePhoneNumber(contactPhone);
+  if (!altPhoneStandardized) {
+    console.log(`Alternative contact ${contactNumber} for ${client.client_name} phone number cannot be standardized: "${contactPhone}"`);
     return null;
   }
   
   // Generate contact name using the naming convention: "ClientName - Relationship"
   const openPhoneContactName = `${client.client_name} - ${relationship}`;
   
+  const customFields: NonNullable<ContactCreationRequest['customFields']> = [];
+
+  if (CUSTOM_FIELD_KEYS.primaryClientName) {
+    customFields.push({
+      name: 'Client Name',
+      key: CUSTOM_FIELD_KEYS.primaryClientName,
+      type: 'text',
+      value: client.client_name,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.relationship) {
+    customFields.push({
+      name: 'Relationship to Client',
+      key: CUSTOM_FIELD_KEYS.relationship,
+      type: 'text',
+      value: relationship,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.contactPersonName) {
+    customFields.push({
+      name: 'Contact Person Name',
+      key: CUSTOM_FIELD_KEYS.contactPersonName,
+      type: 'text',
+      value: contactName,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.clientType && client.client_type) {
+    customFields.push({
+      name: 'Client Type',
+      key: CUSTOM_FIELD_KEYS.clientType,
+      type: 'text',
+      value: client.client_type,
+    });
+  }
+
+  if (CUSTOM_FIELD_KEYS.alternativeContactNumber) {
+    customFields.push({
+      name: 'Alternative Contact Number',
+      key: CUSTOM_FIELD_KEYS.alternativeContactNumber,
+      type: 'text',
+      value: contactNumber.toString(),
+    });
+  }
+
   const contact: MappedContact = {
     openPhoneContact: {
       defaultFields: {
         firstName: openPhoneContactName,
-        phoneNumbers: [{
-          name: `${relationship} Phone`,
-          value: sanitizePhoneNumber(contactPhone),
-          id: generateId(),
-        }],
         company: 'Legal Client Contact',
         role: `Alternative Contact (${relationship})`,
       },
-      customFields: [
-        {
-          name: 'Client Name',
-          key: 'primary_client_name',
-          type: 'text',
-          value: client.client_name,
-        },
-        {
-          name: 'Relationship to Client',
-          key: 'relationship',
-          type: 'text',
-          value: relationship,
-        },
-        {
-          name: 'Contact Person Name',
-          key: 'contact_person_name',
-          type: 'text',
-          value: contactName,
-        },
-        {
-          name: 'Client Type',
-          key: 'client_type',
-          type: 'text',
-          value: client.client_type,
-        },
-        {
-          name: 'Alternative Contact Number',
-          key: 'alt_contact_number',
-          type: 'text',
-          value: contactNumber.toString(),
-        },
-      ],
       externalId: `client_${client.id}_alt_${contactNumber}`,
       source: 'legal-practitioner-app',
     },
@@ -273,8 +437,71 @@ function mapAlternativeContact(client: Client, contactNumber: 1 | 2): MappedCont
     clientName: client.client_name,
     contactType: contactNumber === 1 ? 'alternative_1' : 'alternative_2',
   };
+
+  if (customFields.length > 0) {
+    contact.openPhoneContact.customFields = customFields;
+  }
+  
+  // Add valid phone number (validated and standardized above)
+  contact.openPhoneContact.defaultFields.phoneNumbers = [{
+    name: `${relationship} Phone`,
+    value: altPhoneStandardized,
+    id: generateId(),
+  }];
   
   return contact;
+}
+
+// Test function to demonstrate phone number processing capabilities
+export function testPhoneNumberProcessing(): void {
+  console.log('\n=== Phone Number Processing Test ===');
+  
+  const testCases = [
+    // Valid US phone numbers
+    '706-877-4587',
+    '7064037343',
+    '(706) 877-4587',
+    '706.877.4587',
+    '+1-706-877-4587',
+    '+17068774587',
+    
+    // Invalid/edge cases
+    'N/A',
+    'x',
+    'X',
+    'None',
+    'TBD',
+    '',
+    'abc',
+    '123',
+    '706',
+    '706-87',
+    
+    // International formats
+    '+44 20 7123 4567',
+    '00441234567890',
+    '442071234567',
+    
+    // Edge cases
+    '1-800-555-0123',
+    '8005550123',
+    '+18005550123',
+  ];
+  
+  console.log('Testing phone number validation and standardization...\n');
+  
+  testCases.forEach((phone, index) => {
+    const isValid = isValidPhoneNumber(phone);
+    const standardized = standardizePhoneNumber(phone);
+    
+    console.log(`${index + 1}. Raw: "${phone}"`);
+    console.log(`   Valid: ${isValid ? '✅' : '❌'}`);
+    console.log(`   Standardized: "${standardized}"`);
+    console.log(`   API Ready: ${standardized ? '✅' : '❌'}`);
+    console.log('');
+  });
+  
+  console.log('=== Test Complete ===\n');
 }
 
 // Validation function for mapped contacts
@@ -286,15 +513,11 @@ export function validateMappedContact(contact: MappedContact): { isValid: boolea
     errors.push('Contact name is required');
   }
   
-  if (!contact.openPhoneContact.defaultFields.phoneNumbers || 
-      contact.openPhoneContact.defaultFields.phoneNumbers.length === 0) {
-    errors.push('At least one phone number is required');
-  }
-  
-  // Validate phone number format
-  if (contact.openPhoneContact.defaultFields.phoneNumbers) {
+  // Phone numbers are now optional - only validate if present
+  if (contact.openPhoneContact.defaultFields.phoneNumbers &&
+      contact.openPhoneContact.defaultFields.phoneNumbers.length > 0) {
     for (const phone of contact.openPhoneContact.defaultFields.phoneNumbers) {
-      if (!phone.value || phone.value.length < 7) {
+      if (phone.value && !isValidPhoneNumber(phone.value)) {
         errors.push(`Invalid phone number: ${phone.value}`);
       }
     }

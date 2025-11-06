@@ -54,9 +54,141 @@ export class DuplicateDetectionService {
   private cache: Map<string, any> = new Map(); // Using any to handle OpenPhone API response format
   private phoneIndex: Map<string, PhoneMatch[]> = new Map();
   private nameIndex: Map<string, NameMatch[]> = new Map();
+  private cacheLoaded = false;
+  private cacheLoading: Promise<void> | null = null;
+  private allContacts: Map<string, OpenPhoneContact> = new Map();
+  private externalIndex: Map<string, string> = new Map();
+  private exactPhoneIndex: Map<string, PhoneMatch[]> = new Map();
+  private partialPhoneIndex: Map<string, PhoneMatch[]> = new Map();
 
   constructor(config: Partial<DuplicateDetectionConfig> = {}) {
     this.config = { ...DEFAULT_DUPLICATE_CONFIG, ...config };
+  }
+
+  /**
+   * Ensure in-memory cache is populated with existing OpenPhone contacts
+   */
+  private async ensureCacheLoaded(openPhoneClient: any): Promise<void> {
+    if (this.cacheLoaded) {
+      return;
+    }
+
+    if (this.cacheLoading) {
+      await this.cacheLoading;
+      return;
+    }
+
+    this.cacheLoading = this.loadAllContacts(openPhoneClient);
+    try {
+      await this.cacheLoading;
+    } finally {
+      this.cacheLoading = null;
+    }
+  }
+
+  /**
+   * Load and index OpenPhone contacts for quick duplicate lookups
+   */
+  private async loadAllContacts(openPhoneClient: any): Promise<void> {
+    try {
+      let page = 1;
+      const pageSize = 200;
+      let hasMore = true;
+
+      while (hasMore) {
+        const result = await openPhoneClient.getContacts(page, pageSize);
+
+        for (const contact of result.data) {
+          this.indexContact(contact);
+        }
+
+        hasMore = Boolean(result.hasMore);
+        page += 1;
+        if (!hasMore) {
+          break;
+        }
+      }
+
+      this.cacheLoaded = true;
+    } catch (error) {
+      console.warn('Failed to preload OpenPhone contacts:', error);
+    }
+  }
+
+  /**
+   * Index a contact for duplicate detection lookups
+   */
+  private indexContact(contact: OpenPhoneContact): void {
+    const contactId = (contact as any)?.id as string | undefined;
+
+    if (!contactId) {
+      return;
+    }
+
+    // Remove any stale index entries for this contact
+    this.removeFromPhoneIndex(contactId);
+
+    this.allContacts.set(contactId, contact);
+
+    if (contact.externalId) {
+      this.externalIndex.set(contact.externalId, contactId);
+      this.cache.set(`external_${contact.externalId}`, contact);
+    }
+
+    if (contact.defaultFields.phoneNumbers) {
+      for (const phone of contact.defaultFields.phoneNumbers) {
+        const normalizedPhone = this.normalizePhoneNumber(phone.value);
+        if (phone.value) {
+          this.addPhoneMatch(this.exactPhoneIndex, phone.value, {
+            contactId,
+            phone: phone.value,
+            normalizedPhone,
+            matchType: 'exact',
+          });
+        }
+
+        if (normalizedPhone) {
+          this.addPhoneMatch(this.phoneIndex, normalizedPhone, {
+            contactId,
+            phone: phone.value,
+            normalizedPhone,
+            matchType: 'normalized',
+          });
+
+          if (normalizedPhone.length >= 7) {
+            const partialKey = normalizedPhone.slice(-7);
+            this.addPhoneMatch(this.partialPhoneIndex, partialKey, {
+              contactId,
+              phone: phone.value,
+              normalizedPhone,
+              matchType: 'partial',
+            });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Add a phone match to an index without duplicating entries
+   */
+  private addPhoneMatch(
+    index: Map<string, PhoneMatch[]>,
+    key: string,
+    match: PhoneMatch
+  ): void {
+    if (!key) {
+      return;
+    }
+
+    if (!index.has(key)) {
+      index.set(key, []);
+    }
+
+    const matches = index.get(key)!;
+    if (!matches.some(existing => existing.contactId === match.contactId)) {
+      matches.push(match);
+    }
   }
 
   /**
@@ -68,15 +200,36 @@ export class DuplicateDetectionService {
   ): Promise<any | null> {
     const cacheKey = `external_${externalId}`;
     
+    const cachedContactId = this.externalIndex.get(externalId);
+    if (cachedContactId) {
+      const cachedContact = this.allContacts.get(cachedContactId);
+      if (cachedContact) {
+        return cachedContact;
+      }
+    }
+    
     // Check cache first
     if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey)!;
+      const cachedContact = this.cache.get(cacheKey)!;
+      if (cachedContact?.externalId === externalId) {
+        return cachedContact;
+      }
+      // Cached value is invalid/outdated
+      this.cache.delete(cacheKey);
     }
 
     try {
       const contact = await openPhoneClient.getContactByExternalId(externalId);
       if (contact) {
-        this.cache.set(cacheKey, contact);
+        if (contact.externalId === externalId) {
+          this.cache.set(cacheKey, contact);
+          this.indexContact(contact);
+        } else {
+          console.warn(
+            `External ID mismatch for ${externalId}. API returned contact with externalId=${contact.externalId}`
+          );
+          return null;
+        }
         return contact;
       }
     } catch (error) {
@@ -94,23 +247,34 @@ export class DuplicateDetectionService {
     openPhoneClient: any
   ): Promise<DuplicateCheckResult> {
     try {
+      await this.ensureCacheLoaded(openPhoneClient);
+
       // Strategy 1: Check by external ID (most reliable)
       if (this.config.enableExternalIdCheck && contactData.externalId) {
         const externalIdMatch = await this.findByExternalId(
           contactData.externalId,
           openPhoneClient
         );
-        if (externalIdMatch) {
-          return {
-            isDuplicate: true,
-            existingContactId: (externalIdMatch as any).id,
-            confidence: 1.0,
-            matchReason: 'external_id',
-            metadata: {
-              matchedBy: ['external_id'],
-              score: 1.0,
-            },
-          };
+        if (externalIdMatch && externalIdMatch.id) {
+          // Verify the contact actually exists by trying to fetch it
+          try {
+            await openPhoneClient.getContact(externalIdMatch.id);
+            return {
+              isDuplicate: true,
+              existingContactId: (externalIdMatch as any).id,
+              confidence: 1.0,
+              matchReason: 'external_id',
+              metadata: {
+                matchedBy: ['external_id'],
+                score: 1.0,
+              },
+            };
+          } catch (error) {
+            // Contact ID is invalid, remove from cache
+            const cacheKey = `external_${contactData.externalId}`;
+            this.cache.delete(cacheKey);
+            console.warn(`Invalid contact ID in cache for external ID ${contactData.externalId}, removed from cache`);
+          }
         }
       }
 
@@ -121,16 +285,24 @@ export class DuplicateDetectionService {
           openPhoneClient
         );
         if (phoneMatch) {
-          return {
-            isDuplicate: true,
-            existingContactId: phoneMatch.contactId,
-            confidence: 0.9,
-            matchReason: 'phone_number',
-            metadata: {
-              matchedBy: ['phone_number'],
-              score: 0.9,
-            },
-          };
+          // Verify the contact actually exists
+          try {
+            await openPhoneClient.getContact(phoneMatch.contactId);
+            return {
+              isDuplicate: true,
+              existingContactId: phoneMatch.contactId,
+              confidence: 0.9,
+              matchReason: 'phone_number',
+              metadata: {
+                matchedBy: ['phone_number'],
+                score: 0.9,
+              },
+            };
+          } catch (error) {
+            // Contact ID is invalid, remove from cache and phone index
+            this.removeFromPhoneIndex(phoneMatch.contactId);
+            console.warn(`Invalid contact ID in phone index: ${phoneMatch.contactId}, removed from index`);
+          }
         }
       }
 
@@ -142,16 +314,23 @@ export class DuplicateDetectionService {
           openPhoneClient
         );
         if (nameMatch && nameMatch.similarity >= this.config.similarityThreshold) {
-          return {
-            isDuplicate: true,
-            existingContactId: nameMatch.contactId,
-            confidence: nameMatch.similarity,
-            matchReason: 'name_similarity',
-            metadata: {
-              matchedBy: nameMatch.matchFields,
-              score: nameMatch.similarity,
-            },
-          };
+          // Verify the contact actually exists
+          try {
+            await openPhoneClient.getContact(nameMatch.contactId);
+            return {
+              isDuplicate: true,
+              existingContactId: nameMatch.contactId,
+              confidence: nameMatch.similarity,
+              matchReason: 'name_similarity',
+              metadata: {
+                matchedBy: nameMatch.matchFields,
+                score: nameMatch.similarity,
+              },
+            };
+          } catch (error) {
+            // Contact ID is invalid, remove from cache
+            console.warn(`Invalid contact ID from name match: ${nameMatch.contactId}`);
+          }
         }
       }
 
@@ -220,6 +399,11 @@ export class DuplicateDetectionService {
     phone: string,
     openPhoneClient: any
   ): Promise<PhoneMatch | null> {
+    const cachedMatches = this.exactPhoneIndex.get(phone);
+    if (cachedMatches && cachedMatches.length > 0) {
+      return { ...cachedMatches[0], matchType: 'exact' };
+    }
+
     try {
       // Search using OpenPhone's search functionality
       const contacts = await openPhoneClient.searchContacts(phone, 20);
@@ -228,6 +412,7 @@ export class DuplicateDetectionService {
         if (contact.defaultFields.phoneNumbers) {
           for (const contactPhone of contact.defaultFields.phoneNumbers) {
             if (contactPhone.value === phone) {
+              this.indexContact(contact);
               return {
                 contactId: contact.id,
                 phone,
@@ -252,6 +437,11 @@ export class DuplicateDetectionService {
     normalizedPhone: string,
     openPhoneClient: any
   ): Promise<PhoneMatch | null> {
+    const cachedMatches = this.phoneIndex.get(normalizedPhone);
+    if (cachedMatches && cachedMatches.length > 0) {
+      return { ...cachedMatches[0], matchType: 'normalized' };
+    }
+
     try {
       // Search using normalized phone number
       const contacts = await openPhoneClient.searchContacts(normalizedPhone, 20);
@@ -260,6 +450,7 @@ export class DuplicateDetectionService {
         if (contact.defaultFields.phoneNumbers) {
           for (const contactPhone of contact.defaultFields.phoneNumbers) {
             if (this.normalizePhoneNumber(contactPhone.value) === normalizedPhone) {
+              this.indexContact(contact);
               return {
                 contactId: contact.id,
                 phone: contactPhone.value,
@@ -284,6 +475,11 @@ export class DuplicateDetectionService {
     partialPhone: string,
     openPhoneClient: any
   ): Promise<PhoneMatch | null> {
+    const cachedMatches = this.partialPhoneIndex.get(partialPhone);
+    if (cachedMatches && cachedMatches.length > 0) {
+      return { ...cachedMatches[0], matchType: 'partial' };
+    }
+
     try {
       // Get all contacts and check for partial matches
       // This is less efficient but catches edge cases
@@ -298,6 +494,7 @@ export class DuplicateDetectionService {
             for (const contactPhone of contact.defaultFields.phoneNumbers) {
               const normalizedPhone = this.normalizePhoneNumber(contactPhone.value);
               if (normalizedPhone.endsWith(partialPhone)) {
+                this.indexContact(contact);
                 return {
                   contactId: contact.id,
                   phone: contactPhone.value,
@@ -328,20 +525,55 @@ export class DuplicateDetectionService {
     openPhoneClient?: any
   ): Promise<NameMatch | null> {
     try {
-      // Search by name first
-      const contacts = await openPhoneClient.searchContacts(name, 20);
-      
       let bestMatch: NameMatch | null = null;
       let bestSimilarity = 0;
 
-      for (const contact of contacts) {
+      for (const [contactId, contact] of this.allContacts.entries()) {
         const contactName = contact.defaultFields.firstName || '';
+        if (!contactName) {
+          continue;
+        }
+
         const similarity = this.calculateStringSimilarity(name.toLowerCase(), contactName.toLowerCase());
         
         if (similarity > bestSimilarity && similarity >= this.config.similarityThreshold) {
           const matchFields = ['name'];
           
           // If phone is also provided and matches, increase confidence
+          if (phone && contact.defaultFields.phoneNumbers) {
+            const phoneMatches = contact.defaultFields.phoneNumbers.some((cp: any) =>
+              cp.value === phone || this.normalizePhoneNumber(cp.value) === this.normalizePhoneNumber(phone)
+            );
+            if (phoneMatches) {
+              matchFields.push('phone');
+            }
+          }
+
+          bestMatch = {
+            contactId,
+            name: contactName,
+            similarity,
+            matchFields,
+          };
+          bestSimilarity = similarity;
+        }
+      }
+
+      if (bestMatch) {
+        return bestMatch;
+      }
+
+      // Fallback to API search if not found in cache (handles newly created contacts)
+      const contacts = await openPhoneClient.searchContacts(name, 20);
+
+      for (const contact of contacts) {
+        this.indexContact(contact);
+        const contactName = contact.defaultFields.firstName || '';
+        const similarity = this.calculateStringSimilarity(name.toLowerCase(), contactName.toLowerCase());
+        
+        if (similarity > bestSimilarity && similarity >= this.config.similarityThreshold) {
+          const matchFields = ['name'];
+          
           if (phone && contact.defaultFields.phoneNumbers) {
             const phoneMatches = contact.defaultFields.phoneNumbers.some((cp: any) =>
               cp.value === phone || this.normalizePhoneNumber(cp.value) === this.normalizePhoneNumber(phone)
@@ -437,22 +669,23 @@ export class DuplicateDetectionService {
    */
   updateCache(contacts: OpenPhoneContact[]): void {
     for (const contact of contacts) {
-      if (contact.externalId) {
-        this.cache.set(`external_${contact.externalId}`, contact);
-      }
-      
-      if (contact.defaultFields.phoneNumbers) {
-        for (const phone of contact.defaultFields.phoneNumbers) {
-          const normalizedPhone = this.normalizePhoneNumber(phone.value);
-          if (!this.phoneIndex.has(normalizedPhone)) {
-            this.phoneIndex.set(normalizedPhone, []);
-          }
-          this.phoneIndex.get(normalizedPhone)!.push({
-            contactId: (contact as any).id,
-            phone: phone.value,
-            normalizedPhone,
-            matchType: 'exact',
-          });
+      this.indexContact(contact);
+    }
+  }
+
+  /**
+   * Remove a contact ID from the phone index
+   */
+  private removeFromPhoneIndex(contactId: string): void {
+    const indexes = [this.phoneIndex, this.exactPhoneIndex, this.partialPhoneIndex];
+
+    for (const index of indexes) {
+      for (const [key, matches] of index.entries()) {
+        const filteredMatches = matches.filter(match => match.contactId !== contactId);
+        if (filteredMatches.length === 0) {
+          index.delete(key);
+        } else {
+          index.set(key, filteredMatches);
         }
       }
     }
@@ -465,6 +698,12 @@ export class DuplicateDetectionService {
     this.cache.clear();
     this.phoneIndex.clear();
     this.nameIndex.clear();
+    this.allContacts.clear();
+    this.externalIndex.clear();
+    this.exactPhoneIndex.clear();
+    this.partialPhoneIndex.clear();
+    this.cacheLoaded = false;
+    this.cacheLoading = null;
   }
 
   /**
