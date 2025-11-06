@@ -26,7 +26,7 @@ interface Chat {
   updatedAt: Date;
 }
 
-interface DBMessage {
+export interface DBMessage {
   id: string;
   chatId: string;
   role: 'user' | 'assistant' | 'system';
