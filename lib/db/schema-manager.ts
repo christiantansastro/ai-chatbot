@@ -6,8 +6,7 @@ import type {
   MessageData,
   UserData,
   DocumentData,
-  SuggestionData,
-  VoteData
+  SuggestionData
 } from './adapters/types';
 
 // Schema registry to manage different client schemas

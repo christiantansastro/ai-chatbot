@@ -188,18 +188,6 @@ async function testDatabaseOperations(dbService: DatabaseService): Promise<boole
       await dbService.saveSuggestions([testSuggestion]);
       console.log(`✅ Suggestion created (ID: ${testSuggestion.id})`);
 
-      // Test vote operations
-      console.log('🗳️ Testing vote operations...');
-
-      const testVote = {
-        chatId: testChat.id,
-        messageId: testMessage.id,
-        isUpvoted: true
-      };
-
-      await dbService.voteMessage(testVote);
-      console.log(`✅ Vote created for message ${testMessage.id}`);
-
       // Test stream operations
       console.log('📡 Testing stream operations...');
 
@@ -222,9 +210,6 @@ async function testDatabaseOperations(dbService: DatabaseService): Promise<boole
       const suggestions = await dbService.getSuggestionsByDocumentId(testDocument.id);
       console.log(`✅ Retrieved ${suggestions.length} suggestions for document ${testDocument.id}`);
 
-      const votes = await dbService.getVotesByChatId(testChat.id);
-      console.log(`✅ Retrieved ${votes.length} votes for chat ${testChat.id}`);
-
       const streamIds = await dbService.getStreamIdsByChatId(testChat.id);
       console.log(`✅ Retrieved ${streamIds.length} streams for chat ${testChat.id}`);
 
@@ -239,7 +224,7 @@ async function testDatabaseOperations(dbService: DatabaseService): Promise<boole
       console.log('🧹 Testing cleanup operations...');
 
       await dbService.deleteChatById(testChat.id);
-      console.log(`✅ Chat deleted: ${testChat.id} (this also deletes related messages, votes, and streams)`);
+      console.log(`✅ Chat deleted: ${testChat.id} (this also deletes related messages, and streams)`);
 
       // Note: We don't delete the user as it might be referenced by RLS policies
       console.log(`✅ All test data cleaned up (user ${createdUser.id} preserved)`);

@@ -5,7 +5,6 @@ import type {
   UserData,
   ChatData,
   MessageData,
-  VoteData,
   DocumentData,
   SuggestionData,
   QueryOptions,
@@ -362,8 +361,7 @@ export class SupabaseAdapter implements DatabaseAdapter {
       // Use service role client to bypass RLS for deletion
       const client = this.serviceSupabase || this.supabase;
 
-      // Delete related data first (votes, messages, streams)
-      await client.from('votes').delete().eq('chat_id', id);
+      // Delete related data first (messages, streams)
       await client.from('messages').delete().eq('chat_id', id);
       await client.from('streams').delete().eq('chat_id', id);
 
@@ -555,48 +553,6 @@ export class SupabaseAdapter implements DatabaseAdapter {
       if (error) throw error;
     } catch (error) {
       throw new DatabaseError('Failed to delete messages by chat id after timestamp', error);
-    }
-  }
-
-  // Vote operations
-  async voteMessage(voteData: VoteData): Promise<void> {
-    try {
-      // Use service role client to bypass RLS for vote creation
-      const client = this.serviceSupabase || this.supabase;
-
-      const { error } = await client
-        .from('votes')
-        .upsert({
-          chat_id: voteData.chatId,
-          message_id: voteData.messageId,
-          is_upvoted: voteData.isUpvoted
-        });
-
-      if (error) throw error;
-    } catch (error) {
-      throw new DatabaseError('Failed to vote message', error);
-    }
-  }
-
-  async getVotesByChatId(chatId: string): Promise<VoteData[]> {
-    try {
-      // Use service role client to bypass RLS for reading
-      const client = this.serviceSupabase || this.supabase;
-
-      const { data, error } = await client
-        .from('votes')
-        .select('*')
-        .eq('chat_id', chatId);
-
-      if (error) throw error;
-
-      return (data || []).map((vote: any) => ({
-        chatId: vote.chat_id,
-        messageId: vote.message_id,
-        isUpvoted: vote.is_upvoted
-      }));
-    } catch (error) {
-      throw new DatabaseError('Failed to get votes by chat id', error);
     }
   }
 

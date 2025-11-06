@@ -54,7 +54,6 @@ async function setupDatabase(): Promise<void> {
   console.log('   • Users table with authentication support');
   console.log('   • Chats table for chat history');
   console.log('   • Messages table for chat messages');
-  console.log('   • Votes table for message voting');
   console.log('   • Documents table for file management');
   console.log('   • Suggestions table for document editing');
   console.log('   • Streams table for resumable streams');

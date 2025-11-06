@@ -209,7 +209,7 @@ The database schema is fully compatible with:
 - Vercel AI Chatbot SDK message formats
 - Chat history and user management
 - Document and suggestion systems
-- Vote and feedback mechanisms
+- Message feedback mechanisms
 
 ### Multi-Client Support
 

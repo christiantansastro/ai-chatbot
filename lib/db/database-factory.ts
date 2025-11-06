@@ -247,17 +247,6 @@ export class DatabaseService {
     return adapter.deleteMessagesByChatIdAfterTimestamp(chatId, timestamp);
   }
 
-  // Vote operations
-  async voteMessage(voteData: any) {
-    const adapter = await this.getAdapter();
-    return adapter.voteMessage(voteData);
-  }
-
-  async getVotesByChatId(chatId: string) {
-    const adapter = await this.getAdapter();
-    return adapter.getVotesByChatId(chatId);
-  }
-
   // Document operations
   async saveDocument(documentData: any) {
     const adapter = await this.getAdapter();

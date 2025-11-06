@@ -44,15 +44,6 @@ CREATE TABLE IF NOT EXISTS messages (
     PRIMARY KEY (id, created_at)
 );
 
--- Create votes table
-CREATE TABLE IF NOT EXISTS votes (
-    chat_id UUID NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
-    message_id UUID NOT NULL,
-    is_upvoted BOOLEAN NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (chat_id, message_id)
-);
-
 -- Create documents table
 CREATE TABLE IF NOT EXISTS documents (
     id UUID NOT NULL DEFAULT uuid_generate_v4(),
@@ -129,93 +120,42 @@ CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_messages_chat_id_created_at ON messages(chat_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents(user_id);
 CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_documents_user_created_at ON documents(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_suggestions_document_id ON suggestions(document_id);
 CREATE INDEX IF NOT EXISTS idx_suggestions_document_created_at ON suggestions(document_id, document_created_at);
-CREATE INDEX IF NOT EXISTS idx_votes_chat_id ON votes(chat_id);
-CREATE INDEX IF NOT EXISTS idx_votes_message_id ON votes(message_id);
 CREATE INDEX IF NOT EXISTS idx_clients_client_name ON clients(client_name);
-CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
-CREATE INDEX IF NOT EXISTS idx_clients_phone ON clients(phone);
-CREATE INDEX IF NOT EXISTS idx_clients_contact_1 ON clients(contact_1);
-CREATE INDEX IF NOT EXISTS idx_clients_client_type ON clients(client_type);
-CREATE INDEX IF NOT EXISTS idx_clients_county ON clients(county);
-CREATE INDEX IF NOT EXISTS idx_clients_arrested ON clients(arrested);
-CREATE INDEX IF NOT EXISTS idx_clients_case_type ON clients(case_type);
-CREATE INDEX IF NOT EXISTS idx_clients_court_date ON clients(court_date);
-CREATE INDEX IF NOT EXISTS idx_clients_due_date_balance ON clients(due_date_balance);
 
--- Create GIN indexes for full-text search and trigram matching
-CREATE INDEX IF NOT EXISTS idx_clients_search ON clients USING GIN (
-    to_tsvector('english',
-        client_name || ' ' ||
-        COALESCE(email, '') || ' ' ||
-        COALESCE(phone, '') || ' ' ||
-        COALESCE(contact_1, '') || ' ' ||
-        COALESCE(contact_1_phone, '') || ' ' ||
-        COALESCE(contact_2, '') || ' ' ||
-        COALESCE(contact_2_phone, '') || ' ' ||
-        COALESCE(address, '') || ' ' ||
-        COALESCE(county, '') || ' ' ||
-        COALESCE(case_type, '') || ' ' ||
-        COALESCE(charges, '') || ' ' ||
-        COALESCE(other_side_name, '') || ' ' ||
-        COALESCE(other_side_contact_info, '') || ' ' ||
-        COALESCE(other_side_attorney_info, '') || ' ' ||
-        COALESCE(probation_officer, '') || ' ' ||
-        COALESCE(parole_officer, '')
-    )
-);
-
--- Create trigram indexes for fuzzy matching (with explicit operator classes)
-CREATE INDEX IF NOT EXISTS idx_clients_client_name_trgm ON clients USING GIN (client_name gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_email_trgm ON clients USING GIN (COALESCE(email, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_phone_trgm ON clients USING GIN (COALESCE(phone, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_contact_1_trgm ON clients USING GIN (COALESCE(contact_1, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_contact_1_phone_trgm ON clients USING GIN (COALESCE(contact_1_phone, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_contact_2_trgm ON clients USING GIN (COALESCE(contact_2, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_contact_2_phone_trgm ON clients USING GIN (COALESCE(contact_2_phone, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_clients_other_side_name_trgm ON clients USING GIN (COALESCE(other_side_name, '') gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS idx_streams_chat_id ON streams(chat_id);
-
--- Enable Row Level Security (RLS)
+-- Enable Row Level Security (RLS) for all tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE votes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE suggestions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE streams ENABLE ROW LEVEL SECURITY;
 
--- Create RLS policies for user isolation
--- Users can only access their own data
-CREATE POLICY "Users can view own data" ON users
-    FOR SELECT USING (auth.uid() = id);
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view own chat" ON chats;
+DROP POLICY IF EXISTS "Users can insert own chat" ON chats;
+DROP POLICY IF EXISTS "Users can update own chat" ON chats;
+DROP POLICY IF EXISTS "Users can delete own chat" ON chats;
+DROP POLICY IF EXISTS "Users can view own messages" ON messages;
+DROP POLICY IF EXISTS "Users can insert own messages" ON messages;
+DROP POLICY IF EXISTS "Users can view own documents" ON documents;
+DROP POLICY IF EXISTS "Users can insert own documents" ON documents;
+DROP POLICY IF EXISTS "Users can update own documents" ON documents;
+DROP POLICY IF EXISTS "Users can delete own documents" ON documents;
 
-CREATE POLICY "Users can update own data" ON users
-    FOR UPDATE USING (auth.uid() = id);
+-- RLS Policies for chats table
+CREATE POLICY "Users can view own chat" ON chats
+    FOR SELECT USING (chats.user_id = auth.uid());
 
--- Allow users to insert their own data (for registration)
-CREATE POLICY "Users can insert own data" ON users
-    FOR INSERT WITH CHECK (auth.uid() = id);
+CREATE POLICY "Users can insert own chat" ON chats
+    FOR INSERT WITH CHECK (chats.user_id = auth.uid());
 
--- Allow service role to insert any user data (for admin operations)
-CREATE POLICY "Service role can insert any user" ON users
-    FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "Users can update own chat" ON chats
+    FOR UPDATE USING (chats.user_id = auth.uid());
 
-CREATE POLICY "Users can view own chats" ON chats
-    FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can delete own chat" ON chats
+    FOR DELETE USING (chats.user_id = auth.uid());
 
-CREATE POLICY "Users can insert own chats" ON chats
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own chats" ON chats
-    FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own chats" ON chats
-    FOR DELETE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view messages in own chats" ON messages
+-- RLS Policies for messages table
+CREATE POLICY "Users can view own messages" ON messages
     FOR SELECT USING (
         EXISTS (
             SELECT 1 FROM chats
@@ -224,7 +164,7 @@ CREATE POLICY "Users can view messages in own chats" ON messages
         )
     );
 
-CREATE POLICY "Users can insert messages in own chats" ON messages
+CREATE POLICY "Users can insert own messages" ON messages
     FOR INSERT WITH CHECK (
         EXISTS (
             SELECT 1 FROM chats
@@ -233,7 +173,7 @@ CREATE POLICY "Users can insert messages in own chats" ON messages
         )
     );
 
-CREATE POLICY "Users can update messages in own chats" ON messages
+CREATE POLICY "Users can update own messages" ON messages
     FOR UPDATE USING (
         EXISTS (
             SELECT 1 FROM chats
@@ -242,7 +182,7 @@ CREATE POLICY "Users can update messages in own chats" ON messages
         )
     );
 
-CREATE POLICY "Users can delete messages in own chats" ON messages
+CREATE POLICY "Users can delete own messages" ON messages
     FOR DELETE USING (
         EXISTS (
             SELECT 1 FROM chats
@@ -251,352 +191,58 @@ CREATE POLICY "Users can delete messages in own chats" ON messages
         )
     );
 
+-- RLS Policies for documents table
 CREATE POLICY "Users can view own documents" ON documents
-    FOR SELECT USING (auth.uid() = user_id);
+    FOR SELECT USING (documents.user_id = auth.uid());
 
 CREATE POLICY "Users can insert own documents" ON documents
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+    FOR INSERT WITH CHECK (documents.user_id = auth.uid());
 
 CREATE POLICY "Users can update own documents" ON documents
-    FOR UPDATE USING (auth.uid() = user_id);
+    FOR UPDATE USING (documents.user_id = auth.uid());
 
 CREATE POLICY "Users can delete own documents" ON documents
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING (documents.user_id = auth.uid());
 
-CREATE POLICY "Users can view votes in own chats" ON votes
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM chats
-            WHERE chats.id = votes.chat_id
-            AND chats.user_id = auth.uid()
-        )
-    );
+-- Sample users
+INSERT INTO users (id, email, user_metadata) 
+VALUES 
+    ('12345678-1234-1234-1234-123456789012', 'demo@example.com', '{"name": "Demo User", "role": "demo"}')
+ON CONFLICT (id) DO NOTHING;
 
-CREATE POLICY "Users can insert votes in own chats" ON votes
-    FOR INSERT WITH CHECK (
-        EXISTS (
-            SELECT 1 FROM chats
-            WHERE chats.id = votes.chat_id
-            AND chats.user_id = auth.uid()
-        )
-    );
+-- Sample chats
+INSERT INTO chats (id, user_id, title, visibility, created_at)
+VALUES 
+    ('abcdefab-1234-4567-8901-123456789012', '12345678-1234-1234-1234-123456789012', 'Demo Chat', 'public', NOW() - INTERVAL '1 hour'),
+    ('bcdefabc-2345-5678-9012-234567890123', '12345678-1234-1234-1234-123456789012', 'Private Demo', 'private', NOW() - INTERVAL '2 hours')
+ON CONFLICT (id) DO NOTHING;
 
-CREATE POLICY "Users can update votes in own chats" ON votes
-    FOR UPDATE USING (
-        EXISTS (
-            SELECT 1 FROM chats
-            WHERE chats.id = votes.chat_id
-            AND chats.user_id = auth.uid()
-        )
-    );
+-- Sample messages
+INSERT INTO messages (id, chat_id, role, parts, attachments, created_at)
+VALUES 
+    ('11111111-1111-1111-1111-111111111111', 'abcdefab-1234-4567-8901-123456789012', 'user', '[{"type": "text", "text": "Hello, this is a demo message."}]', '[]', NOW() - INTERVAL '1 hour'),
+    ('22222222-2222-2222-2222-222222222222', 'abcdefab-1234-4567-8901-123456789012', 'assistant', '[{"type": "text", "text": "Hello! This is a demo response from the chatbot."}]', '[]', NOW() - INTERVAL '1 hour' + INTERVAL '1 minute'),
+    ('33333333-3333-3333-3333-333333333333', 'abcdefab-1234-4567-8901-123456789012', 'user', '[{"type": "text", "text": "Can you help me with something?"}]', '[]', NOW() - INTERVAL '45 minutes'),
+    ('44444444-4444-4444-4444-444444444444', 'abcdefab-1234-4567-8901-123456789012', 'assistant', '[{"type": "text", "text": "Absolutely! I am here to help you with any questions or tasks you have."}]', '[]', NOW() - INTERVAL '45 minutes' + INTERVAL '30 seconds')
+ON CONFLICT (id, created_at) DO NOTHING;
 
-CREATE POLICY "Users can delete votes in own chats" ON votes
-    FOR DELETE USING (
-        EXISTS (
-            SELECT 1 FROM chats
-            WHERE chats.id = votes.chat_id
-            AND chats.user_id = auth.uid()
-        )
-    );
+-- Sample documents
+INSERT INTO documents (id, title, content, kind, user_id, created_at)
+VALUES 
+    ('aaaa1111-1111-1111-1111-111111111111', 'Demo Document', 'This is a sample document content.', 'text', '12345678-1234-1234-1234-123456789012', NOW() - INTERVAL '2 days'),
+    ('bbbb2222-2222-2222-2222-222222222222', 'Sample Code', 'function hello() { return "Hello, world!"; }', 'code', '12345678-1234-1234-1234-123456789012', NOW() - INTERVAL '1 day'),
+    ('cccc3333-3333-3333-3333-333333333333', 'Financial Report Q4 2023', 'Revenue: $1,000,000\nExpenses: $750,000\nNet Profit: $250,000', 'financial-statement', '12345678-1234-1234-1234-123456789012', NOW() - INTERVAL '3 hours')
+ON CONFLICT (id, created_at) DO NOTHING;
 
-CREATE POLICY "Users can view own suggestions" ON suggestions
-    FOR SELECT USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own suggestions" ON suggestions
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own suggestions" ON suggestions
-    FOR UPDATE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete own suggestions" ON suggestions
-    FOR DELETE USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can view all clients" ON clients
-    FOR SELECT USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can insert clients" ON clients
-    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can update clients" ON clients
-    FOR UPDATE USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can delete clients" ON clients
-    FOR DELETE USING (auth.uid() IS NOT NULL);
-
--- Enable RLS on financials table
-ALTER TABLE financials ENABLE ROW LEVEL SECURITY;
-
--- Create RLS policies for financials table
-CREATE POLICY "Users can view all financial records" ON financials
-    FOR SELECT USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can insert financial records" ON financials
-    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can update financial records" ON financials
-    FOR UPDATE USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can delete financial records" ON financials
-    FOR DELETE USING (auth.uid() IS NOT NULL);
-
--- Create a function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Migration: Handle existing messages table with old structure
--- If you have an existing messages table with 'content' column, run this migration:
--- ALTER TABLE messages ADD COLUMN IF NOT EXISTS parts JSONB DEFAULT '[]';
--- ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments JSONB DEFAULT '[]';
--- UPDATE messages SET parts = content->'parts', attachments = content->'attachments' WHERE content IS NOT NULL;
--- ALTER TABLE messages DROP COLUMN content;
-
--- Create triggers for updated_at
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_chats_updated_at BEFORE UPDATE ON chats
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_clients_updated_at BEFORE UPDATE ON clients
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Create trigger for financials table
-CREATE TRIGGER update_financials_updated_at BEFORE UPDATE ON financials
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
--- Create a function for precise client searching (requires pg_trgm extension)
-CREATE OR REPLACE FUNCTION search_clients_precise(
-    search_query TEXT,
-    similarity_threshold FLOAT DEFAULT 0.6,
-    max_results INTEGER DEFAULT 10
-)
-RETURNS TABLE (
-    client_name TEXT,
-    client_type TEXT,
-    date_intake DATE,
-    date_of_birth DATE,
-    address TEXT,
-    phone TEXT,
-    email TEXT,
-    contact_1 TEXT,
-    relationship_1 TEXT,
-    contact_1_phone TEXT,
-    contact_2 TEXT,
-    relationship_2 TEXT,
-    contact_2_phone TEXT,
-    notes TEXT,
-    county TEXT,
-    court_date DATE,
-    quoted TEXT,
-    initial_payment TEXT,
-    due_date_balance DATE,
-    arrested BOOLEAN,
-    arrested_county TEXT,
-    currently_incarcerated BOOLEAN,
-    incarceration_location TEXT,
-    incarceration_reason TEXT,
-    last_bond_hearing_date DATE,
-    last_bond_hearing_location TEXT,
-    date_of_incident DATE,
-    incident_county TEXT,
-    on_probation BOOLEAN,
-    probation_county TEXT,
-    probation_officer TEXT,
-    probation_time_left TEXT,
-    on_parole BOOLEAN,
-    parole_officer TEXT,
-    parole_time_left TEXT,
-    arrest_reason TEXT,
-    charges TEXT,
-    served_papers_or_initial_filing TEXT,
-    case_type TEXT,
-    other_side_name TEXT,
-    other_side_relation TEXT,
-    other_side_contact_info TEXT,
-    other_side_attorney_info TEXT,
-    children_involved BOOLEAN,
-    children_details TEXT,
-    previous_court_orders BOOLEAN,
-    previous_orders_county TEXT,
-    previous_orders_case_number TEXT,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        c.client_name,
-        c.client_type,
-        c.date_intake,
-        c.date_of_birth,
-        c.address,
-        c.phone,
-        c.email,
-        c.contact_1,
-        c.relationship_1,
-        c.contact_1_phone,
-        c.contact_2,
-        c.relationship_2,
-        c.contact_2_phone,
-        c.notes,
-        c.county,
-        c.court_date,
-        c.quoted,
-        c.initial_payment,
-        c.due_date_balance,
-        c.arrested,
-        c.arrested_county,
-        c.currently_incarcerated,
-        c.incarceration_location,
-        c.incarceration_reason,
-        c.last_bond_hearing_date,
-        c.last_bond_hearing_location,
-        c.date_of_incident,
-        c.incident_county,
-        c.on_probation,
-        c.probation_county,
-        c.probation_officer,
-        c.probation_time_left,
-        c.on_parole,
-        c.parole_officer,
-        c.parole_time_left,
-        c.arrest_reason,
-        c.charges,
-        c.served_papers_or_initial_filing,
-        c.case_type,
-        c.other_side_name,
-        c.other_side_relation,
-        c.other_side_contact_info,
-        c.other_side_attorney_info,
-        c.children_involved,
-        c.children_details,
-        c.previous_court_orders,
-        c.previous_orders_county,
-        c.previous_orders_case_number,
-        c.created_at,
-        c.updated_at
-    FROM clients c
-    WHERE
-        -- Exact name match (highest priority) - case insensitive
-        (c.client_name IS NOT NULL AND LOWER(c.client_name) = LOWER(search_query))
-        -- Or exact email match
-        OR (c.email IS NOT NULL AND LOWER(c.email) = LOWER(search_query))
-        -- Or exact phone match
-        OR (c.phone IS NOT NULL AND LOWER(c.phone) = LOWER(search_query))
-        -- Or fuzzy name match with high similarity (only if no exact match found)
-        OR (c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > similarity_threshold)
-        -- Or email match
-        OR (c.email IS NOT NULL AND similarity(c.email, search_query) > similarity_threshold)
-        -- Or phone match
-        OR (c.phone IS NOT NULL AND similarity(c.phone, search_query) > similarity_threshold)
-        -- Or contact match
-        OR (c.contact_1 IS NOT NULL AND similarity(c.contact_1, search_query) > similarity_threshold)
-        OR (c.contact_2 IS NOT NULL AND similarity(c.contact_2, search_query) > similarity_threshold)
-        OR (c.contact_1_phone IS NOT NULL AND similarity(c.contact_1_phone, search_query) > similarity_threshold)
-        OR (c.contact_2_phone IS NOT NULL AND similarity(c.contact_2_phone, search_query) > similarity_threshold)
-        OR (c.other_side_name IS NOT NULL AND similarity(c.other_side_name, search_query) > similarity_threshold)
-        -- Or address/location contains the search term
-        OR (c.address IS NOT NULL AND LOWER(c.address) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.county IS NOT NULL AND LOWER(c.county) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.arrested_county IS NOT NULL AND LOWER(c.arrested_county) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.incident_county IS NOT NULL AND LOWER(c.incident_county) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.probation_county IS NOT NULL AND LOWER(c.probation_county) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.previous_orders_county IS NOT NULL AND LOWER(c.previous_orders_county) LIKE '%' || LOWER(search_query) || '%')
-    ORDER BY
-        -- Prioritize exact matches first
-        CASE
-            WHEN LOWER(c.client_name) = LOWER(search_query) THEN 1
-            WHEN LOWER(c.email) = LOWER(search_query) THEN 2
-            WHEN LOWER(c.phone) = LOWER(search_query) THEN 3
-            WHEN c.client_name IS NOT NULL AND similarity(c.client_name, search_query) > 0.8 THEN 4
-            ELSE 5
-        END,
-        -- Then by name alphabetically for same priority matches
-        c.client_name
-    LIMIT max_results;
-END;
-$$;
-
--- Create a basic search function that works without pg_trgm extension
-CREATE OR REPLACE FUNCTION search_clients_basic(
-    search_query TEXT,
-    max_results INTEGER DEFAULT 10
-)
-RETURNS TABLE (
-    id UUID,
-    client_name TEXT,
-    date_intake DATE,
-    date_of_birth DATE,
-    address TEXT,
-    phone TEXT,
-    email TEXT,
-    contact_1 TEXT,
-    relationship_1 TEXT,
-    contact_2 TEXT,
-    relationship_2 TEXT,
-    notes TEXT,
-    created_at TIMESTAMPTZ,
-    updated_at TIMESTAMPTZ
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        c.id,
-        c.client_name,
-        c.date_intake,
-        c.date_of_birth,
-        c.address,
-        c.phone,
-        c.email,
-        c.contact_1,
-        c.relationship_1,
-        c.contact_2,
-        c.relationship_2,
-        c.notes,
-        c.created_at,
-        c.updated_at
-    FROM clients c
-    WHERE
-        -- Basic text matching (case-insensitive)
-        (c.client_name IS NOT NULL AND LOWER(c.client_name) LIKE '%' || LOWER(search_query) || '%')
-        -- Or email matching
-        OR (c.email IS NOT NULL AND LOWER(c.email) LIKE '%' || LOWER(search_query) || '%')
-        -- Or phone matching
-        OR (c.phone IS NOT NULL AND LOWER(c.phone) LIKE '%' || LOWER(search_query) || '%')
-        -- Or contact matching
-        OR (c.contact_1 IS NOT NULL AND LOWER(c.contact_1) LIKE '%' || LOWER(search_query) || '%')
-        OR (c.contact_2 IS NOT NULL AND LOWER(c.contact_2) LIKE '%' || LOWER(search_query) || '%')
-        -- Or address matching
-        OR (c.address IS NOT NULL AND LOWER(c.address) LIKE '%' || LOWER(search_query) || '%')
-    ORDER BY
-        -- Prioritize exact matches first
-        CASE
-            WHEN LOWER(c.client_name) = LOWER(search_query) THEN 1
-            WHEN LOWER(c.client_name) LIKE LOWER(search_query) || '%' THEN 2
-            WHEN LOWER(search_query) = LOWER(c.email) THEN 3
-            ELSE 4
-        END,
-        c.client_name
-    LIMIT max_results;
-END;
-$$;
-
--- Insert some sample client data for testing (only if table is empty)
--- Criminal client example
-INSERT INTO clients (client_name, client_type, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, arrested, charges, court_date, quoted, initial_payment, due_date_balance)
-SELECT 'John Smith', 'criminal', '2025-09-01', '1988-09-01', '123 Main St, City, State 12345', '012345678', 'john.smith@email.com', 'Jane Smith', 'Spouse', NULL, NULL, 'Key account manager, prefers morning meetings', 'Cook County', true, 'DUI, Reckless Driving', '2025-10-15', '2500.00', '500.00', '2025-10-30'
+-- Sample test clients for the legal firm CRM system
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'John Smith', 'civil', '2025-09-15', '1988-12-05', '123 Main Street, Downtown, CA 90210', '555123456', 'john.smith@email.com', 'Jane Smith', 'Wife', NULL, NULL, 'New client, needs consultation on property dispute', 'Los Angeles County', 'Initial filing', 'Property Dispute', '2025-12-20', '2500.00', '500.00', '2025-12-01'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'John Smith');
 
--- Civil client example
+INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, arrested, charges, court_date, quoted, initial_payment, due_date_balance)
+SELECT 'Maria Garcia', 'criminal', '2025-10-01', '1990-03-15', '456 Tech Ave, Silicon Valley, CA 94043', '098765432', 'maria.garcia@techstart.io', 'Carlos Garcia', 'Partner', NULL, NULL, 'Tech startup founder, very responsive to emails', 'Santa Clara County', false, 'Fraud, Embezzlement', '2025-11-20', '3500.00', '1000.00', '2025-11-15'
+WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Maria Garcia');
+
 INSERT INTO clients (client_name, client_type, date_intake, date_of_birth, address, phone, email, contact_1, relationship_1, contact_2, relationship_2, notes, county, served_papers_or_initial_filing, case_type, court_date, quoted, initial_payment, due_date_balance)
 SELECT 'Sarah Johnson', 'civil', '2025-08-15', '1990-03-15', '456 Tech Ave, Silicon Valley, CA 94043', '098765432', 'sarah.j@techstart.io', 'Mike Johnson', 'Partner', NULL, NULL, 'Startup founder, very responsive to emails', 'Santa Clara County', 'Initial filing', 'Business Contract Dispute', '2025-11-20', '3500.00', '1000.00', '2025-11-15'
 WHERE NOT EXISTS (SELECT 1 FROM clients WHERE client_name = 'Sarah Johnson');

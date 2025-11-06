@@ -35,12 +35,6 @@ interface DBMessage {
   createdAt: Date;
 }
 
-interface Vote {
-  chatId: string;
-  messageId: string;
-  isUpvoted: boolean;
-}
-
 interface Document {
   id: string;
   title: string;
@@ -219,37 +213,6 @@ export async function getMessagesByChatId({ id }: { id: string }) {
   }
 }
 
-export async function voteMessage({
-  chatId,
-  messageId,
-  type,
-}: {
-  chatId: string;
-  messageId: string;
-  type: "up" | "down";
-}) {
-  try {
-    await databaseService.voteMessage({
-      chatId,
-      messageId,
-      isUpvoted: type === "up"
-    });
-  } catch (_error) {
-    throw new ChatSDKError("bad_request:database", "Failed to vote message");
-  }
-}
-
-export async function getVotesByChatId({ id }: { id: string }) {
-  try {
-    return await databaseService.getVotesByChatId(id);
-  } catch (_error) {
-    throw new ChatSDKError(
-      "bad_request:database",
-      "Failed to get votes by chat id"
-    );
-  }
-}
-
 export async function saveDocument({
   id,
   title,
@@ -352,10 +315,7 @@ export async function getMessageById({ id }: { id: string }) {
   try {
     return await databaseService.getMessageById(id);
   } catch (_error) {
-    throw new ChatSDKError(
-      "bad_request:database",
-      "Failed to get message by id"
-    );
+    throw new ChatSDKError("bad_request:database", "Failed to get message by id");
   }
 }
 

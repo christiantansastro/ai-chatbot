@@ -3,7 +3,6 @@ import type {
   UserData,
   ChatData,
   MessageData,
-  VoteData,
   DocumentData,
   SuggestionData,
   QueryOptions,
@@ -38,10 +37,6 @@ export interface DatabaseAdapter {
   getMessagesByChatId(chatId: string, options?: QueryOptions): Promise<MessageData[]>;
   getMessageById(id: string): Promise<MessageData[]>;
   deleteMessagesByChatIdAfterTimestamp(chatId: string, timestamp: Date): Promise<void>;
-
-  // Vote operations
-  voteMessage(voteData: VoteData): Promise<void>;
-  getVotesByChatId(chatId: string): Promise<VoteData[]>;
 
   // Document operations
   saveDocument(documentData: DocumentData): Promise<DocumentData>;

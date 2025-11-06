@@ -19,7 +19,7 @@ import { textArtifact } from "@/artifacts/text/client";
 import { financialStatementArtifact } from "@/artifacts/financial-statement/client";
 import { clientReportArtifact } from "@/artifacts/client-report/client";
 import { useArtifact } from "@/hooks/use-artifact";
-import type { Document, Vote } from "@/lib/db/schema";
+import type { Document } from "@/lib/db/schema";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { fetcher } from "@/lib/utils";
 import { ArtifactActions } from "./artifact-actions";
@@ -68,7 +68,6 @@ function PureArtifact({
   messages,
   setMessages,
   regenerate,
-  votes,
   isReadonly,
   selectedVisibilityType,
   selectedModelId,
@@ -82,7 +81,6 @@ function PureArtifact({
   setAttachments: Dispatch<SetStateAction<Attachment[]>>;
   messages: ChatMessage[];
   setMessages: UseChatHelpers<ChatMessage>["setMessages"];
-  votes: Vote[] | undefined;
   sendMessage: UseChatHelpers<ChatMessage>["sendMessage"];
   regenerate: UseChatHelpers<ChatMessage>["regenerate"];
   isReadonly: boolean;
@@ -358,7 +356,6 @@ function PureArtifact({
                   regenerate={regenerate}
                   setMessages={setMessages}
                   status={status}
-                  votes={votes}
                 />
 
                 <div className="relative flex w-full flex-row items-end gap-2 px-4 pb-4">
@@ -543,13 +540,10 @@ export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
   if (prevProps.status !== nextProps.status) {
     return false;
   }
-  if (!equal(prevProps.votes, nextProps.votes)) {
-    return false;
-  }
   if (prevProps.input !== nextProps.input) {
     return false;
   }
-  if (!equal(prevProps.messages, nextProps.messages.length)) {
+  if (!equal(prevProps.messages, nextProps.messages)) {
     return false;
   }
   if (prevProps.selectedVisibilityType !== nextProps.selectedVisibilityType) {

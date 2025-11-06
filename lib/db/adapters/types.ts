@@ -1,4 +1,4 @@
-import type { User, Chat, DBMessage, Vote, Document, Suggestion } from '../schema';
+import type { User, Chat, DBMessage, Document, Suggestion } from '../schema';
 
 // Database configuration types
 export interface DatabaseConfig {
@@ -42,12 +42,6 @@ export interface MessageData {
   parts: any[];
   attachments: any[];
   createdAt: Date;
-}
-
-export interface VoteData {
-  chatId: string;
-  messageId: string;
-  isUpvoted: boolean;
 }
 
 export interface DocumentData {

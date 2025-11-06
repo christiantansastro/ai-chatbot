@@ -5,7 +5,6 @@ import type {
   UserData,
   ChatData,
   MessageData,
-  VoteData,
   DocumentData,
   SuggestionData,
   QueryOptions,
@@ -206,7 +205,6 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
   async deleteChatById(id: string): Promise<ChatData> {
     try {
       // Delete related data first
-      await this.db.delete(vote).where(eq(vote.chatId, id));
       await this.db.delete(message).where(eq(message.chatId, id));
       await this.db.delete(stream).where(eq(stream.chatId, id));
 
@@ -329,38 +327,6 @@ export class PostgreSQLAdapter implements DatabaseAdapter {
         );
     } catch (error) {
       throw new DatabaseError('Failed to delete messages by chat id after timestamp', error);
-    }
-  }
-
-  // Vote operations
-  async voteMessage(voteData: VoteData): Promise<void> {
-    try {
-      await this.db
-        .insert(vote)
-        .values({
-          chatId: voteData.chatId,
-          messageId: voteData.messageId,
-          isUpvoted: voteData.isUpvoted
-        });
-    } catch (error) {
-      throw new DatabaseError('Failed to vote message', error);
-    }
-  }
-
-  async getVotesByChatId(chatId: string): Promise<VoteData[]> {
-    try {
-      const result = await this.db
-        .select()
-        .from(vote)
-        .where(eq(vote.chatId, chatId));
-
-      return result.map((v: any) => ({
-        chatId: v.chatId,
-        messageId: v.messageId,
-        isUpvoted: v.isUpvoted
-      }));
-    } catch (error) {
-      throw new DatabaseError('Failed to get votes by chat id', error);
     }
   }
 
@@ -665,7 +631,6 @@ import {
   user,
   chat,
   message,
-  vote,
   document,
   suggestion,
   stream,

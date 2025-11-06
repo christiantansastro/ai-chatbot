@@ -13,7 +13,6 @@ export type Surface =
   | "stream"
   | "database"
   | "history"
-  | "vote"
   | "document"
   | "suggestions"
   | "activate_gateway";
@@ -29,7 +28,6 @@ export const visibilityBySurface: Record<Surface, ErrorVisibility> = {
   stream: "response",
   api: "response",
   history: "response",
-  vote: "response",
   document: "response",
   suggestions: "response",
   activate_gateway: "response",
