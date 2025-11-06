@@ -3,7 +3,7 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { unstable_serialize } from "swr/infinite";
 import { ChatHeader } from "@/components/chat-header";
@@ -26,6 +26,7 @@ import type { Attachment, ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { fetcher, fetchWithErrorHandlers, generateUUID } from "@/lib/utils";
 import { Artifact } from "./artifact";
+import { ClientInsightsPanel } from "./client-insights-panel";
 import { useDataStream } from "./data-stream-provider";
 import { Messages } from "./messages";
 import { MultimodalInput } from "./multimodal-input";
@@ -63,6 +64,7 @@ export function Chat({
   const [showCreditCardAlert, setShowCreditCardAlert] = useState(false);
   const [currentModelId, setCurrentModelId] = useState(initialChatModel);
   const currentModelIdRef = useRef(currentModelId);
+  const [isClientPanelOpen, setClientPanelOpen] = useState(false);
 
   useEffect(() => {
     currentModelIdRef.current = currentModelId;
@@ -142,6 +144,21 @@ export function Chat({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const isArtifactVisible = useArtifactSelector((state) => state.isVisible);
 
+  const handleOpenClientPanel = useCallback(() => {
+    setClientPanelOpen(true);
+  }, []);
+
+  const handleClientPanelChange = useCallback((open: boolean) => {
+    setClientPanelOpen(open);
+  }, []);
+
+  const handleInsightMessage = useCallback(
+    (message: ChatMessage) => {
+      setMessages((prev) => [...prev, message]);
+    },
+    [setMessages]
+  );
+
   useAutoResume({
     autoResume,
     initialMessages,
@@ -155,6 +172,7 @@ export function Chat({
         <ChatHeader
           chatId={id}
           isReadonly={isReadonly}
+          onOpenClientInsights={handleOpenClientPanel}
           selectedVisibilityType={initialVisibilityType}
         />
 
@@ -206,6 +224,14 @@ export function Chat({
         setMessages={setMessages}
         status={status}
         stop={stop}
+      />
+
+      <ClientInsightsPanel
+        chatId={id}
+        isReadonly={isReadonly}
+        onMessageCreated={handleInsightMessage}
+        onOpenChange={handleClientPanelChange}
+        open={isClientPanelOpen}
       />
 
       <AlertDialog

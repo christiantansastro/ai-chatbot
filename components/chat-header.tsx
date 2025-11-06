@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { memo } from "react";
 import { useWindowSize } from "usehooks-ts";
+import { SearchIcon } from "lucide-react";
 import { SidebarToggle } from "@/components/sidebar-toggle";
 import { Button } from "@/components/ui/button";
-import { PlusIcon, VercelIcon, UserIcon } from "./icons";
+import { PlusIcon, UserIcon } from "./icons";
 import { ClientIntakeModal } from "./client-intake-modal";
 import { useSidebar } from "./ui/sidebar";
 import { VisibilitySelector, type VisibilityType } from "./visibility-selector";
@@ -15,10 +15,12 @@ function PureChatHeader({
   chatId,
   selectedVisibilityType,
   isReadonly,
+  onOpenClientInsights,
 }: {
   chatId: string;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
+  onOpenClientInsights?: () => void;
 }) {
   const router = useRouter();
   const { open } = useSidebar();
@@ -49,11 +51,22 @@ function PureChatHeader({
       <ClientIntakeModal>
         <Button
           className="order-3 h-8 px-2 md:order-3 md:h-fit md:px-2"
-          variant="outline">
-            <UserIcon />
-            <span className="md:sr-only">Add Client</span>
+          variant="outline"
+        >
+          <UserIcon />
+          <span className="md:sr-only">Add Client</span>
         </Button>
       </ClientIntakeModal>
+
+      <Button
+        className="order-4 h-8 px-2 md:order-4 md:h-fit md:px-2"
+        onClick={onOpenClientInsights}
+        type="button"
+        variant="outline"
+      >
+        <SearchIcon className="size-4" />
+        <span className="md:sr-only">Search clients</span>
+      </Button>
 
       {!isReadonly && (
         <VisibilitySelector
@@ -70,6 +83,7 @@ export const ChatHeader = memo(PureChatHeader, (prevProps, nextProps) => {
   return (
     prevProps.chatId === nextProps.chatId &&
     prevProps.selectedVisibilityType === nextProps.selectedVisibilityType &&
-    prevProps.isReadonly === nextProps.isReadonly
+    prevProps.isReadonly === nextProps.isReadonly &&
+    prevProps.onOpenClientInsights === nextProps.onOpenClientInsights
   );
 });
