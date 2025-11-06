@@ -3,6 +3,22 @@ import { queryClients } from "../tools/query-clients";
 import { createClientReport } from "../tools/create-client-report";
 import { updateClient } from "../tools/update-client";
 import { queryOutstandingBalances } from "../tools/query-outstanding-balances";
+import { normalizePhoneNumberForStorage, stripPhoneToComparable } from "../../utils/phone";
+import { extractClientNameFromQuery } from "../../utils/client-validation";
+
+interface ParsedClientUpdateSuccess {
+  success: true;
+  searchQuery: string;
+  updateData: Record<string, string | boolean>;
+  matchedFields: string[];
+}
+
+interface ParsedClientUpdateFailure {
+  success: false;
+  message: string;
+}
+
+type ParsedClientUpdate = ParsedClientUpdateSuccess | ParsedClientUpdateFailure;
 
 /**
  * Clients Agent - Handles all client-related queries and operations
@@ -46,6 +62,26 @@ export class ClientsAgent extends BaseAgent {
     // Check for client keywords
     const hasClientKeyword = clientKeywords.some(keyword => lowerQuery.includes(keyword));
 
+    const contactKeywords = [
+      'contact',
+      'contacts',
+      'alternate contact',
+      'alternative contact',
+      'alternative contact 1',
+      'alternative contact 2',
+      'emergency contact',
+      'contact 1',
+      'contact 2'
+    ];
+
+    const updateVerbs = ['add', 'update', 'change', 'modify', 'edit', 'set', 'correct', 'fix', 'replace'];
+    const specificFieldKeywords = ['phone', 'phone number', 'email', 'address', 'relationship', 'notes', 'balance', 'payment'];
+
+    const hasContactKeyword = contactKeywords.some(keyword => lowerQuery.includes(keyword));
+    const hasUpdateVerb = updateVerbs.some(verb => lowerQuery.includes(verb));
+    const hasFieldKeyword = specificFieldKeywords.some(keyword => lowerQuery.includes(keyword));
+    const hasContactUpdate = hasContactKeyword && hasUpdateVerb;
+
     // Check for specific client operations (enhanced pattern matching)
     const clientOperations = [
       'generate client report', 'create client report', 'client report for',
@@ -57,7 +93,12 @@ export class ClientsAgent extends BaseAgent {
 
     const hasClientOperation = clientOperations.some(operation => lowerQuery.includes(operation));
 
-    return hasClientKeyword || hasClientOperation;
+    return (
+      hasClientKeyword ||
+      hasClientOperation ||
+      hasContactUpdate ||
+      (hasUpdateVerb && hasFieldKeyword && (lowerQuery.includes('client') || /\bfor\s+[a-z]/i.test(query)))
+    );
   }
 
   /**
@@ -70,15 +111,15 @@ export class ClientsAgent extends BaseAgent {
       const lowerQuery = query.toLowerCase();
 
       // Determine which tool to use based on the query - prioritized by specificity
-       if (lowerQuery.includes('report') || lowerQuery.includes('summary') || lowerQuery.includes('profile')) {
-         return await this.handleClientReport(query, context);
-       } else if (lowerQuery.includes('update') || lowerQuery.includes('modify') || lowerQuery.includes('edit')) {
-         return await this.handleClientUpdate(query, context);
-       } else if (lowerQuery.includes('outstanding') || lowerQuery.includes('balance') || lowerQuery.includes('owed') || lowerQuery.includes('owing')) {
-         return await this.handleOutstandingBalances(query, context);
-       } else {
-         return await this.handleClientSearch(query, context);
-       }
+      if (this.isReportRequest(query) || lowerQuery.includes('summary') || lowerQuery.includes('profile')) {
+        return await this.handleClientReport(query, context);
+      } else if (this.isUpdateIntent(lowerQuery)) {
+        return await this.handleClientUpdate(query, context);
+      } else if (lowerQuery.includes('outstanding') || lowerQuery.includes('balance') || lowerQuery.includes('owed') || lowerQuery.includes('owing')) {
+        return await this.handleOutstandingBalances(query, context);
+      } else {
+        return await this.handleClientSearch(query, context);
+      }
     } catch (error) {
       const processingTime = Date.now() - startTime;
       return {
@@ -322,21 +363,92 @@ export class ClientsAgent extends BaseAgent {
   /**
    * Handle client update queries
    */
+  private isUpdateIntent(lowerQuery: string): boolean {
+    const updateVerbs = ['update', 'modify', 'edit', 'change', 'set', 'add', 'correct', 'fix', 'replace'];
+    const fieldKeywords = [
+      'phone',
+      'phone number',
+      'email',
+      'address',
+      'contact',
+      'relationship',
+      'notes',
+      'county',
+      'court date',
+      'balance',
+      'payment'
+    ];
+
+    const hasUpdateVerb = updateVerbs.some(verb => lowerQuery.includes(verb));
+    if (!hasUpdateVerb) {
+      return false;
+    }
+
+    const hasFieldKeyword = fieldKeywords.some(keyword => lowerQuery.includes(keyword));
+    const mentionsContact = /\bcontact\s*(?:1|2)\b/.test(lowerQuery) ||
+      lowerQuery.includes('alternative contact') ||
+      lowerQuery.includes('alternate contact') ||
+      lowerQuery.includes('emergency contact');
+
+    return hasFieldKeyword || mentionsContact;
+  }
+
+  /**
+   * Handle client update queries
+   */
   private async handleClientUpdate(query: string, context?: any): Promise<AgentResponse> {
     const startTime = Date.now();
 
     try {
-      // For now, return a message indicating this feature needs more context
-      // In a full implementation, this would parse the query to extract update parameters
+      const parsed = this.parseClientUpdate(query);
+
+      if (!parsed.success) {
+        return {
+          success: false,
+          message: parsed.message,
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime: Date.now() - startTime,
+            toolsUsed: [],
+            confidence: 0.4
+          }
+        };
+      }
+
+      const { searchQuery, updateData, matchedFields } = parsed;
+
+      const updateResult = await (updateClient as any)({
+        searchQuery,
+        ...updateData
+      });
+
+      const processingTime = Date.now() - startTime;
+
+      if (!updateResult.success) {
+        return {
+          success: false,
+          message: updateResult.message || 'Failed to update client details.',
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime,
+            toolsUsed: ['updateClient'],
+            confidence: 0.4
+          }
+        };
+      }
+
       return {
-        success: false,
-        message: "Client update functionality requires specific field information. Please specify what information you'd like to update (e.g., 'update client John Doe phone number to 555-1234').",
+        success: true,
+        message: updateResult.message || `Updated ${matchedFields.join(', ')} for ${searchQuery}.`,
+        data: updateResult.client,
         agent: this.name,
         category: this.category,
         metadata: {
-          processingTime: Date.now() - startTime,
-          toolsUsed: [],
-          confidence: 0.5
+          processingTime,
+          toolsUsed: ['updateClient'],
+          confidence: 0.9
         }
       };
     } catch (error) {
@@ -353,6 +465,199 @@ export class ClientsAgent extends BaseAgent {
         }
       };
     }
+  }
+
+  /**
+   * Parse client update instructions from a query string
+   */
+  private parseClientUpdate(query: string): ParsedClientUpdate {
+    const potentialName =
+      extractClientNameFromQuery(query) ||
+      this.extractClientName(query);
+
+    const cleanedName = potentialName ? this.cleanClientName(potentialName) : null;
+    const resolvedName = cleanedName ? this.resolveClientName(query, cleanedName) : null;
+
+    if (!resolvedName) {
+      return {
+        success: false,
+        message: "I couldn't tell which client to update. Please mention the client's full name."
+      };
+    }
+
+    const contactMatch = query.match(/(?:alternate|alternative|emergency)?\s*contact\s*(1|2)/i);
+    const contactIndex = contactMatch ? (parseInt(contactMatch[1], 10) === 2 ? 2 : 1) : undefined;
+
+    const updateData: Record<string, string | boolean> = {};
+    const matchedFields: string[] = [];
+
+    if (contactIndex) {
+      const contactDetails = this.extractContactDetails(query, contactIndex);
+      if (contactDetails.name) {
+        updateData[`contact_${contactIndex}`] = contactDetails.name;
+        matchedFields.push(`contact_${contactIndex}`);
+      }
+      if (contactDetails.relationship) {
+        updateData[`relationship_${contactIndex}`] = contactDetails.relationship;
+        matchedFields.push(`relationship_${contactIndex}`);
+      }
+    }
+
+    const phoneNumber = this.extractPhoneNumber(query);
+    if (phoneNumber) {
+      if (contactIndex) {
+        updateData[`contact_${contactIndex}_phone`] = phoneNumber;
+        matchedFields.push(`contact_${contactIndex}_phone`);
+      } else {
+        updateData.phone = phoneNumber;
+        matchedFields.push('phone');
+      }
+    }
+
+    if (matchedFields.length === 0) {
+      return {
+        success: false,
+        message: "I couldn't detect any specific client fields to update. Please specify the exact detail, like a contact phone number."
+      };
+    }
+
+    return {
+      success: true,
+      searchQuery: resolvedName,
+      updateData,
+      matchedFields
+    };
+  }
+
+  /**
+   * Try to extract and normalize a phone number from the query
+   */
+  private extractPhoneNumber(query: string): string | null {
+    const phoneMatch = query.match(/(\+?\d[\d\s().-]{7,}\d)/);
+    if (!phoneMatch) {
+      return null;
+    }
+
+    const rawPhone = phoneMatch[1].trim();
+    const normalized = normalizePhoneNumberForStorage(rawPhone);
+    if (normalized) {
+      return normalized;
+    }
+
+    const stripped = stripPhoneToComparable(rawPhone);
+    if (!stripped) {
+      return null;
+    }
+
+    if (!stripped.startsWith('+') && stripped.length === 10) {
+      return `+1${stripped}`;
+    }
+
+    return stripped;
+  }
+
+  /**
+   * Extract contact name and relationship details from the query
+   */
+  private extractContactDetails(query: string, contactIndex: 1 | 2): { name?: string; relationship?: string } {
+    const pattern = new RegExp(`(?:alternate|alternative|emergency)?\\s*contact\\s*${contactIndex}([^\\n]*)`, 'i');
+    const match = query.match(pattern);
+
+    if (!match) {
+      return {};
+    }
+
+    let remainder = match[1] || '';
+    const updateVerbMatch = remainder.match(/\b(add|update|change|set|modify|edit|replace|correct|fix)\b/i);
+    if (updateVerbMatch && updateVerbMatch.index !== undefined) {
+      remainder = remainder.slice(0, updateVerbMatch.index);
+    }
+
+    remainder = remainder.replace(/^[:\-,\s]+/, '').trim();
+    if (!remainder) {
+      return {};
+    }
+
+    const relationshipMatch = remainder.match(/\(([^)]+)\)/);
+    const relationship = relationshipMatch ? relationshipMatch[1].trim() : undefined;
+
+    let contactName = remainder.replace(/\([^)]*\)/, '').trim();
+    contactName = contactName.replace(/[,:;]+$/, '').trim();
+
+    const result: { name?: string; relationship?: string } = {};
+    if (contactName) {
+      result.name = contactName;
+    }
+    if (relationship) {
+      result.relationship = relationship;
+    }
+
+    return result;
+  }
+
+  /**
+   * Clean up extracted client name fragments from the query
+   */
+  private cleanClientName(name: string): string {
+    if (!name) {
+      return '';
+    }
+
+    let cleaned = name.trim();
+    cleaned = cleaned.replace(/'s\b/i, '').trim();
+    cleaned = cleaned.replace(/\b(alternate|alternative|emergency)\s+contact.*$/i, '').trim();
+    cleaned = cleaned.replace(/\bcontact\s*(1|2).*/i, '').trim();
+    cleaned = cleaned.replace(/[,:;]+$/, '').trim();
+
+    return cleaned;
+  }
+
+  /**
+   * Resolve client name to include likely surname when only first name is detected
+   */
+  private resolveClientName(query: string, baseName: string): string | null {
+    if (!baseName) {
+      return null;
+    }
+
+    let resolved = baseName.trim();
+    if (!resolved) {
+      return null;
+    }
+
+    const normalizedQuery = query || '';
+
+    if (!resolved.includes(' ')) {
+      const possessivePattern = new RegExp(`\\b${resolved}\\s+([A-Z][a-z]+)'s\\b`, 'i');
+      const possessiveMatch = normalizedQuery.match(possessivePattern);
+      if (possessiveMatch && possessiveMatch[1]) {
+        resolved = `${this.formatNamePart(resolved)} ${this.formatNamePart(possessiveMatch[1])}`;
+      } else {
+        const surnamePattern = new RegExp(`\\b${resolved}\\s+([A-Z][a-z]+)\\b`, 'i');
+        const surnameMatch = normalizedQuery.match(surnamePattern);
+        if (surnameMatch && surnameMatch[1]) {
+          const candidate = surnameMatch[1];
+          const invalidSurnameWords = ['alternative', 'alternate', 'contact', 'client', 'case', 'profile', 'summary', 'report'];
+          if (!invalidSurnameWords.includes(candidate.toLowerCase())) {
+            resolved = `${this.formatNamePart(resolved)} ${this.formatNamePart(candidate)}`;
+          } else {
+            resolved = this.formatNamePart(resolved);
+          }
+        } else {
+          resolved = this.formatNamePart(resolved);
+        }
+      }
+    }
+
+    return resolved.trim();
+  }
+
+  private formatNamePart(name: string): string {
+    if (!name) {
+      return '';
+    }
+    const lower = name.toLowerCase();
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
   }
 
   /**
@@ -417,6 +722,18 @@ export class ClientsAgent extends BaseAgent {
    * Extract client name from query string
    */
   private extractClientName(query: string): string | null {
+    const extractedFromUtility = extractClientNameFromQuery(query);
+    let fallbackName: string | null = null;
+
+    if (extractedFromUtility) {
+      const cleaned = this.cleanClientName(extractedFromUtility);
+      const resolved = this.resolveClientName(query, cleaned);
+      if (resolved && resolved.includes(' ')) {
+        return resolved;
+      }
+      fallbackName = resolved || cleaned || null;
+    }
+
     // Enhanced extraction with more patterns for "report for" requests
     const patterns = [
       // Handle "report for [name]" patterns
@@ -435,13 +752,18 @@ export class ClientsAgent extends BaseAgent {
       if (match && match[1]) {
         const name = match[1].trim();
         // Filter out common non-name words
-        if (name && !['client', 'case', 'field', 'profile', 'summary', 'report', 'this', 'that', 'client'].includes(name.toLowerCase())) {
-          return name;
+        if (name && !['client', 'case', 'profile', 'summary', 'report', 'this', 'that', 'client'].includes(name.toLowerCase())) {
+          const cleanedName = this.cleanClientName(name);
+          const resolvedName = this.resolveClientName(query, cleanedName);
+          if (resolvedName && resolvedName.includes(' ')) {
+            return resolvedName;
+          }
+          fallbackName = fallbackName ?? resolvedName ?? cleanedName;
         }
       }
     }
 
-    return null;
+    return fallbackName;
   }
 
   /**

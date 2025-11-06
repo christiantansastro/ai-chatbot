@@ -30,6 +30,16 @@ export class IntentClassifier {
     try {
       const lowerQuery = query.toLowerCase();
 
+      const contactUpdatePattern = /\b(add|update|change|set|modify|edit|correct|fix|replace)\b.*\b(contact|phone|email|address|relationship)\b/;
+      if (contactUpdatePattern.test(lowerQuery)) {
+        return {
+          category: 'clients',
+          confidence: 0.92,
+          keywords: this.extractKeywords(query, 'clients'),
+          reasoning: 'Detected request to modify client contact information - routing to ClientsAgent'
+        };
+      }
+
       // Special handling for file storage queries
       // If query contains file operations AND "for [name]", prioritize FilesAgent
       const fileOperations = ['store', 'upload', 'save', 'attach'];

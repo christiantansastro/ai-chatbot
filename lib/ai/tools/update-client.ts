@@ -191,8 +191,10 @@ export const updateClient = tool({
       if (updateData.date_intake !== undefined) updateFields.date_intake = updateData.date_intake;
       if (updateData.contact_1 !== undefined) updateFields.contact_1 = updateData.contact_1;
       if (updateData.relationship_1 !== undefined) updateFields.relationship_1 = updateData.relationship_1;
+      if (updateData.contact_1_phone !== undefined) updateFields.contact_1_phone = updateData.contact_1_phone;
       if (updateData.contact_2 !== undefined) updateFields.contact_2 = updateData.contact_2;
       if (updateData.relationship_2 !== undefined) updateFields.relationship_2 = updateData.relationship_2;
+      if (updateData.contact_2_phone !== undefined) updateFields.contact_2_phone = updateData.contact_2_phone;
       if (updateData.notes !== undefined) updateFields.notes = updateData.notes;
       if (updateData.county !== undefined) updateFields.county = updateData.county;
       if (updateData.arrested !== undefined) updateFields.arrested = updateData.arrested;
