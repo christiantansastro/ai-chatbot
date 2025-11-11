@@ -7,6 +7,7 @@ import {
 } from './communication-database-service';
 import { databaseFactory, databaseService } from './db/database-factory';
 import type { Client } from './db/schema';
+import type { OpenPhoneContact } from './openphone-mapping';
 
 interface CallParticipant {
   contactId?: string;
@@ -157,7 +158,12 @@ export class OpenPhoneCommunicationsSyncService {
     }
   }
 
-  private async importCalls(phoneNumbers: Array<{ id: string; number: string }>, start: Date, end: Date, pageSize: number) {
+  private async importCalls(
+    phoneNumbers: Array<{ id: string; number: string }>,
+    start: Date,
+    end: Date,
+    pageSize: number
+  ) {
     let recordsProcessed = 0;
     let creations = 0;
     let updates = 0;
@@ -178,7 +184,8 @@ export class OpenPhoneCommunicationsSyncService {
             participant,
             startIso,
             endIso,
-            pageSize
+            pageSize,
+            client
           );
           recordsProcessed += counters.recordsProcessed;
           creations += counters.creations;
@@ -247,22 +254,28 @@ export class OpenPhoneCommunicationsSyncService {
     return { recordsProcessed, creations, updates, clientsCreated };
   }
 
-  private async processCallRecord(call: OpenPhoneCall) {
+  private async processCallRecord(call: OpenPhoneCall, matchedClient?: Client, fallbackPhone?: string) {
     if (!call?.id) return null;
     const contact = this.extractContact(call);
-    const clientResult = await this.resolveClient(contact);
+    if (!contact.phone && fallbackPhone) {
+      contact.phone = fallbackPhone;
+    }
+
+    const clientResult = matchedClient
+      ? { client: matchedClient, created: false }
+      : await this.resolveClient(contact);
+
     const communicationDate = this.toDateOnly(call.startedAt || call.endedAt || new Date().toISOString());
     const summary =
-      call.summary ||
-      call.metadata?.summary ||
-      `Phone call ${call.direction === 'outbound' ? 'to' : 'from'} ${contact.name || 'contact'}`;
+      this.extractCallSummary(call) ||
+      `Phone call ${call.direction === 'outbound' ? 'to' : 'from'} ${clientResult.client.client_name}`;
 
     const payload: CommunicationRecordInput = {
       clientId: clientResult.client.id,
       clientName: clientResult.client.client_name,
       communicationDate,
       communicationType: 'phone_call',
-      subject: `Phone call with ${contact.name || contact.phone || 'contact'}`,
+      subject: `Phone call with ${clientResult.client.client_name}`,
       notes: summary,
       source: 'Quo',
       openPhoneCallId: call.id,
@@ -273,16 +286,27 @@ export class OpenPhoneCommunicationsSyncService {
     return { ...result, clientCreated: clientResult.created };
   }
 
-  private async processConversationRecord(conversation: OpenPhoneConversation) {
+  private async processConversationRecord(
+    conversation: OpenPhoneConversation,
+    matchedClient?: Client,
+    fallbackPhone?: string
+  ) {
     if (!conversation?.id) return null;
     const contact = this.extractContact(conversation);
-    const clientResult = await this.resolveClient(contact);
+    if (!contact.phone && fallbackPhone) {
+      contact.phone = fallbackPhone;
+    }
+
+    const clientResult = matchedClient
+      ? { client: matchedClient, created: false }
+      : await this.resolveClient(contact);
+
     const communicationType = this.mapConversationType(conversation.type);
     const latestTimestamp =
-      conversation.lastMessage?.createdAt || conversation.updatedAt || new Date().toISOString();
+      (conversation as any)?.lastMessage?.createdAt || conversation.updatedAt || new Date().toISOString();
     const communicationDate = this.toDateOnly(latestTimestamp);
     const notes =
-      conversation.lastMessage?.content ||
+      this.extractConversationMessage(conversation) ||
       conversation.title ||
       `Conversation update received on ${communicationDate}`;
 
@@ -291,7 +315,8 @@ export class OpenPhoneCommunicationsSyncService {
       clientName: clientResult.client.client_name,
       communicationDate,
       communicationType,
-      subject: conversation.title || `${communicationType} conversation`,
+      subject:
+        conversation.title || `${this.titleCase(communicationType)} with ${clientResult.client.client_name}`,
       notes,
       source: 'Quo',
       openPhoneConversationId: conversation.id,
@@ -306,11 +331,27 @@ export class OpenPhoneCommunicationsSyncService {
     participants?: CallParticipant[];
     contact?: { id?: string; displayName?: string; phoneNumber?: string; email?: string };
   }) {
-    const participant = source.participants?.find(p => p.type !== 'user') || source.participants?.[0];
+    const participants = source.participants || [];
+    const participantEntry =
+      participants.find(participant => (participant as any)?.type !== 'user') || participants[0];
+
     const contact = source.contact || {};
-    const name = contact.displayName || participant?.displayName || null;
-    const phone = contact.phoneNumber || participant?.phoneNumber || null;
-    const contactId = contact.id || participant?.contactId || null;
+    const participantName =
+      typeof participantEntry === 'string'
+        ? null
+        : participantEntry?.displayName || (participantEntry as any)?.name || null;
+
+    const participantPhone =
+      typeof participantEntry === 'string'
+        ? participantEntry
+        : participantEntry?.phoneNumber || (participantEntry as any)?.number || null;
+
+    const participantContactId =
+      typeof participantEntry === 'string' ? null : participantEntry?.contactId || (participantEntry as any)?.id || null;
+
+    const name = contact.displayName || participantName || null;
+    const phone = contact.phoneNumber || participantPhone || null;
+    const contactId = contact.id || participantContactId || null;
     const email = contact.email || null;
 
     return { name, phone, contactId, email };
@@ -336,11 +377,18 @@ export class OpenPhoneCommunicationsSyncService {
       return { client, created: false };
     }
 
-    client = await this.clientDbService.createClientFromOpenPhoneContact({
+    const enriched = await this.enrichOpenPhoneContact({
+      contactId: contact.contactId || undefined,
+      phone: contact.phone || undefined,
       name: contact.name || undefined,
-      phone: normalizedPhone || contact.phone || undefined,
       email: contact.email || undefined,
-      openPhoneContactId: contact.contactId || undefined,
+    });
+
+    client = await this.clientDbService.createClientFromOpenPhoneContact({
+      name: enriched.name || contact.name || undefined,
+      phone: normalizedPhone || contact.phone || undefined,
+      email: enriched.email || contact.email || undefined,
+      openPhoneContactId: enriched.contactId || contact.contactId || undefined,
     });
 
     return { client, created: true };
@@ -374,6 +422,162 @@ export class OpenPhoneCommunicationsSyncService {
     return phone.replace(/[^\d+]/g, '');
   }
 
+  private titleCase(value: string): string {
+    return value
+      .split(/[\s_-]+/)
+      .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(' ');
+  }
+
+  private extractCallSummary(call: any): string | null {
+    const candidates = [
+      call?.summary,
+      call?.summary?.text,
+      call?.summary?.content,
+      call?.metadata?.summary,
+      call?.metadata?.callSummary,
+      call?.notes,
+    ];
+
+    for (const value of candidates) {
+      const cleaned = this.toCleanString(value);
+      if (cleaned) {
+        return cleaned;
+      }
+    }
+
+    return null;
+  }
+
+  private extractConversationMessage(conversation: any): string | null {
+    const lastMessage = conversation?.lastMessage;
+    if (!lastMessage) {
+      return null;
+    }
+
+    const candidates = [
+      lastMessage.text,
+      lastMessage.body,
+      lastMessage.message,
+      lastMessage.preview,
+      lastMessage.summary,
+      lastMessage.content,
+      Array.isArray(lastMessage.content)
+        ? lastMessage.content.find((item: any) => typeof item?.text === 'string')?.text
+        : lastMessage.content?.text,
+    ];
+
+    for (const value of candidates) {
+      const cleaned = this.toCleanString(value);
+      if (cleaned) {
+        return cleaned;
+      }
+    }
+
+    return null;
+  }
+
+  private toCleanString(value: any): string | null {
+    if (!value) return null;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    if (typeof value === 'object') {
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          const cleaned = this.toCleanString(entry);
+          if (cleaned) return cleaned;
+        }
+        return null;
+      }
+      if (typeof value.text === 'string') {
+        const trimmed = value.text.trim();
+        return trimmed.length > 0 ? trimmed : null;
+      }
+    }
+    return null;
+  }
+
+  private async enrichOpenPhoneContact(contact: {
+    contactId?: string | null;
+    phone?: string | null;
+    name?: string | null;
+    email?: string | null;
+  }): Promise<{ name?: string; email?: string; contactId?: string }> {
+    let enrichedName = contact.name || null;
+    let enrichedEmail = contact.email || null;
+    let enrichedContactId = contact.contactId || null;
+
+    if (enrichedContactId) {
+      const remote = await this.safeGetOpenPhoneContact(enrichedContactId);
+      if (remote) {
+        enrichedName = enrichedName || this.formatOpenPhoneContactName(remote);
+        enrichedEmail = enrichedEmail || this.extractPrimaryEmail(remote);
+      }
+    } else if (contact.phone) {
+      const remote = await this.searchOpenPhoneContactByPhone(contact.phone);
+      if (remote) {
+        enrichedContactId = remote.id || enrichedContactId;
+        enrichedName = enrichedName || this.formatOpenPhoneContactName(remote);
+        enrichedEmail = enrichedEmail || this.extractPrimaryEmail(remote);
+      }
+    }
+
+    return {
+      name: enrichedName || undefined,
+      email: enrichedEmail || undefined,
+      contactId: enrichedContactId || undefined,
+    };
+  }
+
+  private async safeGetOpenPhoneContact(contactId: string): Promise<OpenPhoneContact | null> {
+    try {
+      return await this.openPhoneClient.getContact(contactId);
+    } catch (error) {
+      console.debug('Failed to fetch OpenPhone contact', contactId, error);
+      return null;
+    }
+  }
+
+  private async searchOpenPhoneContactByPhone(phone: string): Promise<OpenPhoneContact | null> {
+    try {
+      const normalized = this.formatParticipantPhone(phone);
+      if (!normalized) return null;
+      const results = await this.openPhoneClient.searchContacts(normalized, 5);
+      return results.find(contact =>
+        contact.defaultFields?.phoneNumbers?.some(
+          (item: any) => this.formatParticipantPhone(item?.value) === normalized
+        )
+      ) || null;
+    } catch (error) {
+      console.debug('Failed to search OpenPhone contact by phone', phone, error);
+      return null;
+    }
+  }
+
+  private formatOpenPhoneContactName(contact: OpenPhoneContact): string | null {
+    const first = contact.defaultFields?.firstName;
+    const last = contact.defaultFields?.lastName;
+    const company = contact.defaultFields?.company;
+
+    const parts = [first, last].filter(Boolean);
+    if (parts.length > 0) {
+      return parts.join(' ').trim();
+    }
+
+    if (company && company.trim().length > 0) {
+      return company.trim();
+    }
+
+    return null;
+  }
+
+  private extractPrimaryEmail(contact: OpenPhoneContact): string | null {
+    const email = contact.defaultFields?.emails?.find((entry: any) => entry?.value)?.value;
+    return email?.trim() || null;
+  }
+
   private async getWorkspacePhoneNumbers(): Promise<Array<{ id: string; number: string }>> {
     if (this.phoneNumbersCache) {
       return this.phoneNumbersCache;
@@ -397,7 +601,8 @@ export class OpenPhoneCommunicationsSyncService {
     participant: string,
     startIso: string,
     endIso: string,
-    pageSize: number
+    pageSize: number,
+    matchedClient?: Client
   ): Promise<{ recordsProcessed: number; creations: number; updates: number; clientsCreated: number }> {
     let pageToken: string | undefined;
     const counters = { recordsProcessed: 0, creations: 0, updates: 0, clientsCreated: 0 };
@@ -422,7 +627,7 @@ export class OpenPhoneCommunicationsSyncService {
       counters.recordsProcessed += response.data.length;
 
       for (const call of response.data) {
-        const result = await this.processCallRecord(call);
+        const result = await this.processCallRecord(call, matchedClient, participant);
         if (result?.action === 'created') {
           counters.creations++;
         } else if (result?.action === 'updated') {
