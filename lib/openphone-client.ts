@@ -87,17 +87,23 @@ interface PaginatedMeta {
 }
 
 export interface ListCallsParams {
-  limit?: number;
-  cursor?: string;
-  startTime?: string;
-  endTime?: string;
+  phoneNumberId: string;
+  participants: string[];
+  createdAfter?: string;
+  createdBefore?: string;
+  maxResults?: number;
+  pageToken?: string;
 }
 
 export interface ListConversationsParams {
-  limit?: number;
-  cursor?: string;
+  phoneNumbers: string[];
   updatedAfter?: string;
   updatedBefore?: string;
+  createdAfter?: string;
+  createdBefore?: string;
+  excludeInactive?: boolean;
+  maxResults?: number;
+  pageToken?: string;
 }
 
 // Rate limiting state
@@ -465,18 +471,33 @@ export class OpenPhoneAPIClient {
   /**
    * List calls with pagination
    */
-  async listCalls(params: ListCallsParams = {}): Promise<{ data: any[]; nextCursor?: string | null }> {
+  async listCalls(params: ListCallsParams): Promise<{ data: any[]; nextPageToken?: string | null }> {
+    if (!params.phoneNumberId) {
+      throw new Error('phoneNumberId is required when listing calls');
+    }
+    if (!params.participants || params.participants.length === 0) {
+      throw new Error('At least one participant is required when listing calls');
+    }
+
     const query = new URLSearchParams();
-    if (params.limit) query.set('limit', params.limit.toString());
-    if (params.cursor) query.set('cursor', params.cursor);
-    if (params.startTime) query.set('start', params.startTime);
-    if (params.endTime) query.set('end', params.endTime);
+    query.set('phoneNumberId', params.phoneNumberId);
+    for (const participant of params.participants) {
+      query.append('participants', participant);
+    }
+    if (params.createdAfter) query.set('createdAfter', params.createdAfter);
+    if (params.createdBefore) query.set('createdBefore', params.createdBefore);
+    if (params.maxResults) query.set('maxResults', params.maxResults.toString());
+    if (params.pageToken) query.set('pageToken', params.pageToken);
 
     const endpoint = `/calls${query.toString() ? `?${query.toString()}` : ''}`;
-    const response = await this.makeRequest<{ data: any[]; meta?: PaginatedMeta; nextCursor?: string }>(endpoint);
+    const response = await this.makeRequest<{
+      data: any[];
+      nextPageToken?: string | null;
+      meta?: { nextPageToken?: string | null };
+    }>(endpoint);
     return {
       data: response.data || [],
-      nextCursor: response.meta?.nextCursor ?? response.nextCursor ?? null,
+      nextPageToken: response.nextPageToken ?? response.meta?.nextPageToken ?? null,
     };
   }
 
@@ -484,20 +505,44 @@ export class OpenPhoneAPIClient {
    * List conversations with pagination
    */
   async listConversations(
-    params: ListConversationsParams = {}
-  ): Promise<{ data: any[]; nextCursor?: string | null }> {
+    params: ListConversationsParams
+  ): Promise<{ data: any[]; nextPageToken?: string | null }> {
+    if (!params.phoneNumbers || params.phoneNumbers.length === 0) {
+      throw new Error('At least one phone number is required when listing conversations');
+    }
+
     const query = new URLSearchParams();
-    if (params.limit) query.set('limit', params.limit.toString());
-    if (params.cursor) query.set('cursor', params.cursor);
-    if (params.updatedAfter) query.set('updated_after', params.updatedAfter);
-    if (params.updatedBefore) query.set('updated_before', params.updatedBefore);
+    for (const phone of params.phoneNumbers) {
+      query.append('phoneNumbers', phone);
+    }
+    if (params.updatedAfter) query.set('updatedAfter', params.updatedAfter);
+    if (params.updatedBefore) query.set('updatedBefore', params.updatedBefore);
+    if (params.createdAfter) query.set('createdAfter', params.createdAfter);
+    if (params.createdBefore) query.set('createdBefore', params.createdBefore);
+    if (typeof params.excludeInactive === 'boolean') {
+      query.set('excludeInactive', String(params.excludeInactive));
+    }
+    if (params.maxResults) query.set('maxResults', params.maxResults.toString());
+    if (params.pageToken) query.set('pageToken', params.pageToken);
 
     const endpoint = `/conversations${query.toString() ? `?${query.toString()}` : ''}`;
-    const response = await this.makeRequest<{ data: any[]; meta?: PaginatedMeta; nextCursor?: string }>(endpoint);
+    const response = await this.makeRequest<{
+      data: any[];
+      nextPageToken?: string | null;
+      meta?: { nextPageToken?: string | null };
+    }>(endpoint);
     return {
       data: response.data || [],
-      nextCursor: response.meta?.nextCursor ?? response.nextCursor ?? null,
+      nextPageToken: response.nextPageToken ?? response.meta?.nextPageToken ?? null,
     };
+  }
+
+  /**
+   * List workspace phone numbers
+   */
+  async listPhoneNumbers(): Promise<{ data: any[] }> {
+    const response = await this.makeRequest<{ data: any[] }>('/phone-numbers');
+    return { data: response.data || [] };
   }
 
   /**

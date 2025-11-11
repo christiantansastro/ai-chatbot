@@ -66,6 +66,7 @@ export class OpenPhoneCommunicationsSyncService {
   private clientDbService = getClientDatabaseService();
   private communicationDbService = getCommunicationDatabaseService();
   private initialized = false;
+  private phoneNumbersCache: Array<{ id: string; number: string }> | null = null;
 
   private async ensureDatabaseReady(): Promise<void> {
     if (this.initialized) return;
@@ -97,8 +98,22 @@ export class OpenPhoneCommunicationsSyncService {
     let communicationsUpdated = 0;
     let clientsCreated = 0;
 
+    const needsPhoneNumbers = includeCalls || includeMessages;
+    const phoneNumbers = needsPhoneNumbers ? await this.getWorkspacePhoneNumbers() : [];
+
+    if (needsPhoneNumbers && phoneNumbers.length === 0) {
+      console.warn('No OpenPhone phone numbers found for synchronization');
+      return {
+        callsProcessed,
+        conversationsProcessed,
+        communicationsCreated,
+        communicationsUpdated,
+        clientsCreated,
+      };
+    }
+
     if (includeCalls) {
-      const callStats = await this.importCalls(start, end, pageSize);
+      const callStats = await this.importCalls(phoneNumbers, start, end, pageSize);
       callsProcessed += callStats.recordsProcessed;
       communicationsCreated += callStats.creations;
       communicationsUpdated += callStats.updates;
@@ -106,7 +121,7 @@ export class OpenPhoneCommunicationsSyncService {
     }
 
     if (includeMessages) {
-      const convoStats = await this.importConversations(start, end, pageSize);
+      const convoStats = await this.importConversations(phoneNumbers, start, end, pageSize);
       conversationsProcessed += convoStats.recordsProcessed;
       communicationsCreated += convoStats.creations;
       communicationsUpdated += convoStats.updates;
@@ -142,75 +157,91 @@ export class OpenPhoneCommunicationsSyncService {
     }
   }
 
-  private async importCalls(start: Date, end: Date, pageSize: number) {
-    let cursor: string | null = null;
-    let hasMore = true;
+  private async importCalls(phoneNumbers: Array<{ id: string; number: string }>, start: Date, end: Date, pageSize: number) {
     let recordsProcessed = 0;
     let creations = 0;
     let updates = 0;
     let clientsCreated = 0;
 
-    while (hasMore) {
-      const response = await this.openPhoneClient.listCalls({
-        limit: pageSize,
-        cursor: cursor ?? undefined,
-        startTime: start.toISOString(),
-        endTime: end.toISOString(),
-      });
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
 
-      recordsProcessed += response.data.length;
-
-      for (const call of response.data) {
-        const result = await this.processCallRecord(call);
-        if (result?.action === 'created') {
-          creations++;
-        } else if (result?.action === 'updated') {
-          updates++;
+    await this.clientDbService.batchProcessClients(50, async clients => {
+      for (const client of clients) {
+        const participant = this.formatParticipantPhone(client.phone);
+        if (!participant) {
+          continue;
         }
-        if (result?.clientCreated) {
-          clientsCreated++;
+        for (const phoneNumber of phoneNumbers) {
+          const counters = await this.fetchCallsForPair(
+            phoneNumber.id,
+            participant,
+            startIso,
+            endIso,
+            pageSize
+          );
+          recordsProcessed += counters.recordsProcessed;
+          creations += counters.creations;
+          updates += counters.updates;
+          clientsCreated += counters.clientsCreated;
         }
       }
-
-      cursor = response.nextCursor || null;
-      hasMore = Boolean(cursor);
-    }
+    });
 
     return { recordsProcessed, creations, updates, clientsCreated };
   }
 
-  private async importConversations(start: Date, end: Date, pageSize: number) {
-    let cursor: string | null = null;
-    let hasMore = true;
+  private async importConversations(
+    phoneNumbers: Array<{ id: string; number: string }>,
+    start: Date,
+    end: Date,
+    pageSize: number
+  ) {
     let recordsProcessed = 0;
     let creations = 0;
     let updates = 0;
     let clientsCreated = 0;
 
-    while (hasMore) {
-      const response = await this.openPhoneClient.listConversations({
-        limit: pageSize,
-        cursor: cursor ?? undefined,
-        updatedAfter: start.toISOString(),
-        updatedBefore: end.toISOString(),
-      });
+    const phoneNumberIds = phoneNumbers.map(number => number.id);
+    const phoneNumberChunks = this.chunkArray(phoneNumberIds, 50);
+    const startIso = start.toISOString();
+    const endIso = end.toISOString();
 
-      recordsProcessed += response.data.length;
-
-      for (const conversation of response.data) {
-        const result = await this.processConversationRecord(conversation);
-        if (result?.action === 'created') {
-          creations++;
-        } else if (result?.action === 'updated') {
-          updates++;
+    for (const chunk of phoneNumberChunks) {
+      let pageToken: string | undefined;
+      do {
+        let response;
+        try {
+          const maxResults = Math.min(Math.max(pageSize, 1), 100);
+          response = await this.openPhoneClient.listConversations({
+            phoneNumbers: chunk,
+            updatedAfter: startIso,
+            updatedBefore: endIso,
+            maxResults,
+            pageToken,
+            excludeInactive: true,
+          });
+        } catch (error) {
+          console.warn('Failed to list conversations for phone numbers:', chunk, error);
+          break;
         }
-        if (result?.clientCreated) {
-          clientsCreated++;
-        }
-      }
 
-      cursor = response.nextCursor || null;
-      hasMore = Boolean(cursor);
+        recordsProcessed += response.data.length;
+
+        for (const conversation of response.data) {
+          const result = await this.processConversationRecord(conversation);
+          if (result?.action === 'created') {
+            creations++;
+          } else if (result?.action === 'updated') {
+            updates++;
+          }
+          if (result?.clientCreated) {
+            clientsCreated++;
+          }
+        }
+
+        pageToken = response.nextPageToken || undefined;
+      } while (pageToken);
     }
 
     return { recordsProcessed, creations, updates, clientsCreated };
@@ -341,6 +372,101 @@ export class OpenPhoneCommunicationsSyncService {
 
   private normalizePhone(phone: string): string {
     return phone.replace(/[^\d+]/g, '');
+  }
+
+  private async getWorkspacePhoneNumbers(): Promise<Array<{ id: string; number: string }>> {
+    if (this.phoneNumbersCache) {
+      return this.phoneNumbersCache;
+    }
+    try {
+      const response = await this.openPhoneClient.listPhoneNumbers();
+      this.phoneNumbersCache =
+        response.data?.map((item: any) => ({
+          id: item.id,
+          number: item.number,
+        })) || [];
+    } catch (error) {
+      console.error('Failed to load OpenPhone phone numbers:', error);
+      this.phoneNumbersCache = [];
+    }
+    return this.phoneNumbersCache;
+  }
+
+  private async fetchCallsForPair(
+    phoneNumberId: string,
+    participant: string,
+    startIso: string,
+    endIso: string,
+    pageSize: number
+  ): Promise<{ recordsProcessed: number; creations: number; updates: number; clientsCreated: number }> {
+    let pageToken: string | undefined;
+    const counters = { recordsProcessed: 0, creations: 0, updates: 0, clientsCreated: 0 };
+
+    do {
+      let response;
+      try {
+        const maxResults = Math.min(Math.max(pageSize, 1), 100);
+        response = await this.openPhoneClient.listCalls({
+          phoneNumberId,
+          participants: [participant],
+          createdAfter: startIso,
+          createdBefore: endIso,
+          maxResults,
+          pageToken,
+        });
+      } catch (error) {
+        console.warn('Failed to fetch calls for', { phoneNumberId, participant, error });
+        break;
+      }
+
+      counters.recordsProcessed += response.data.length;
+
+      for (const call of response.data) {
+        const result = await this.processCallRecord(call);
+        if (result?.action === 'created') {
+          counters.creations++;
+        } else if (result?.action === 'updated') {
+          counters.updates++;
+        }
+        if (result?.clientCreated) {
+          counters.clientsCreated++;
+        }
+      }
+
+      pageToken = response.nextPageToken || undefined;
+    } while (pageToken);
+
+    return counters;
+  }
+
+  private chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+      chunks.push(items.slice(i, i + size));
+    }
+    return chunks;
+  }
+
+  private formatParticipantPhone(phone?: string | null): string | null {
+    if (!phone) return null;
+    const trimmed = phone.trim();
+    if (!trimmed) return null;
+
+    const digitsOnly = trimmed.replace(/\D/g, '');
+    if (!digitsOnly) return null;
+
+    let e164Digits = digitsOnly;
+    if (trimmed.startsWith('+')) {
+      e164Digits = digitsOnly;
+    } else if (digitsOnly.length === 10) {
+      e164Digits = `1${digitsOnly}`;
+    }
+
+    const e164 = `+${e164Digits}`;
+    if (e164.length < 5) {
+      return null;
+    }
+    return e164;
   }
 }
 
