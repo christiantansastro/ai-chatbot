@@ -11,6 +11,7 @@ import type { Client } from './db/schema';
 
 // OpenPhone API Types (based on documentation)
 export interface OpenPhoneContact {
+  id?: string;
   externalId?: string;
   defaultFields: {
     firstName?: string;
