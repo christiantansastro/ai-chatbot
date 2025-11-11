@@ -153,7 +153,7 @@ export class OpenPhoneCommunicationsSyncService {
     while (hasMore) {
       const response = await this.openPhoneClient.listCalls({
         limit: pageSize,
-        cursor,
+        cursor: cursor ?? undefined,
         startTime: start.toISOString(),
         endTime: end.toISOString(),
       });
@@ -190,7 +190,7 @@ export class OpenPhoneCommunicationsSyncService {
     while (hasMore) {
       const response = await this.openPhoneClient.listConversations({
         limit: pageSize,
-        cursor,
+        cursor: cursor ?? undefined,
         updatedAfter: start.toISOString(),
         updatedBefore: end.toISOString(),
       });
