@@ -497,30 +497,42 @@ export class ClientDatabaseService {
     openPhoneContactId?: string;
   }): Promise<Client> {
     const client = this.getClientInstance();
-    const preferredName =
+    const baseName =
       contact.name ||
       (contact.phone ? `OpenPhone Contact ${this.normalizePhone(contact.phone)}` : 'OpenPhone Contact');
 
-    const payload = {
-      client_name: preferredName,
-      phone: contact.phone || null,
-      email: contact.email || null,
-      client_type: null,
-      openphone_contact_id: contact.openPhoneContactId || null,
-    };
+    let attempt = 0;
+    const maxAttempts = 5;
 
-    const { data, error } = await client
-      .from('clients')
-      .insert(payload)
-      .select('*')
-      .single();
+    while (attempt < maxAttempts) {
+      const candidateName = this.generateCandidateName(baseName, contact, attempt);
+      const payload = {
+        client_name: candidateName,
+        phone: contact.phone || null,
+        email: contact.email || null,
+        client_type: null,
+        openphone_contact_id: contact.openPhoneContactId || null,
+      };
 
-    if (error) {
-      console.error('Error creating client from OpenPhone contact:', error);
-      throw new Error(`Failed to create client: ${error.message}`);
+      const { data, error } = await client
+        .from('clients')
+        .insert(payload)
+        .select('*')
+        .single();
+
+      if (!error) {
+        return data as Client;
+      }
+
+      if (error.code !== '23505') {
+        console.error('Error creating client from OpenPhone contact:', error);
+        throw new Error(`Failed to create client: ${error.message}`);
+      }
+
+      attempt++;
     }
 
-    return data as Client;
+    throw new Error('Failed to create client: duplicate client_name after multiple attempts');
   }
 
   /**
@@ -542,6 +554,23 @@ export class ClientDatabaseService {
   private normalizePhone(phone?: string | null): string {
     if (!phone) return '';
     return phone.replace(/[^\d+]/g, '');
+  }
+
+  private generateCandidateName(
+    baseName: string,
+    contact: { openPhoneContactId?: string; phone?: string },
+    attempt: number
+  ): string {
+    if (attempt === 0) {
+      return baseName;
+    }
+
+    const suffix =
+      contact.openPhoneContactId ||
+      this.normalizePhone(contact.phone || '') ||
+      new Date().getTime().toString();
+
+    return `${baseName} ${attempt}-${suffix.slice(-6)}`;
   }
 }
 
