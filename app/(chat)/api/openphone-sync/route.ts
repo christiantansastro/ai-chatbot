@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSyncService } from '../../../../lib/openphone-sync-service';
 import { getSyncScheduler } from '../../../../lib/openphone-scheduler';
 import { databaseService, databaseFactory } from '../../../../lib/db/database-factory';
+import { getCommunicationsSyncService } from '../../../../lib/openphone-communications-service';
 
 // Ensure database is initialized before handling requests
 let dbInitialized = false;
@@ -179,6 +180,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         message: 'Caches cleared successfully',
+      });
+    }
+
+    if (action === 'import-communications') {
+      const syncService = getCommunicationsSyncService();
+      const result = await syncService.syncCommunications({
+        startDate: options?.startDate ? new Date(options.startDate) : undefined,
+        endDate: options?.endDate ? new Date(options.endDate) : undefined,
+        includeCalls: options?.includeCalls,
+        includeMessages: options?.includeMessages,
+      });
+
+      return NextResponse.json({
+        success: true,
+        result,
+        message: 'Communications import completed',
       });
     }
 

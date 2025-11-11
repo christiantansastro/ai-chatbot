@@ -59,6 +59,8 @@ export class OpenPhoneContactSyncService {
   private openPhoneClient = getOpenPhoneClient();
   private clientDbService = getClientDatabaseService();
   private duplicateService = getDuplicateDetectionService();
+  private retryPolicy =
+    this.openPhoneClient.getRetryPolicy?.() ?? { attempts: 3, delay: 1000 };
   private syncInProgress = false;
   private progressCallbacks: Array<(progress: SyncProgress) => void> = [];
 
@@ -232,7 +234,7 @@ export class OpenPhoneContactSyncService {
     const result: SyncResult = this.createSyncResult(true, 0, 0, 0, 0, 0, [], new Date(), new Date(), options.syncMode);
     
     const batchSize = options.batchSize || 50;
-    const maxRetries = options.maxRetries || 3;
+    const maxRetries = this.resolveMaxRetries(options);
 
     for (let i = 0; i < clients.length; i += batchSize) {
       const batch = clients.slice(i, i + batchSize);
@@ -350,6 +352,7 @@ export class OpenPhoneContactSyncService {
     options: SyncOptions, 
     maxRetries: number
   ): Promise<{ action: 'created' | 'updated' | 'skipped'; contactId?: string }> {
+    const retryDelay = this.getBaseRetryDelay();
     
     // Validate mapped contact
     const validation = validateMappedContact(mappedContact);
@@ -360,22 +363,42 @@ export class OpenPhoneContactSyncService {
 
     // Check for duplicates if not in dry run mode
     if (!options.dryRun) {
-      const duplicateCheck = await this.duplicateService.checkForDuplicates(
-        mappedContact.openPhoneContact,
-        this.openPhoneClient
-      );
+      let duplicateCheck: DuplicateCheckResult | null = null;
+      try {
+        duplicateCheck = await this.executeWithRetries(
+          () =>
+            this.duplicateService.checkForDuplicates(
+              mappedContact.openPhoneContact,
+              this.openPhoneClient
+            ),
+          maxRetries,
+          `duplicate-check:${mappedContact.clientId}`,
+          retryDelay
+        );
+      } catch (error) {
+        console.error(
+          `Failed duplicate detection for ${mappedContact.clientName}:`,
+          error
+        );
+      }
 
-      if (duplicateCheck.isDuplicate) {
+      if (duplicateCheck?.isDuplicate) {
         console.log(`Duplicate detected for ${mappedContact.clientName} (${mappedContact.contactType}), updating existing contact`);
         
         try {
-          await this.openPhoneClient.updateContact(
-            duplicateCheck.existingContactId!,
-            {
-              defaultFields: mappedContact.openPhoneContact.defaultFields,
-              customFields: mappedContact.openPhoneContact.customFields,
-              externalId: mappedContact.openPhoneContact.externalId,
-            }
+          await this.executeWithRetries(
+            () =>
+              this.openPhoneClient.updateContact(
+                duplicateCheck!.existingContactId!,
+                {
+                  defaultFields: mappedContact.openPhoneContact.defaultFields,
+                  customFields: mappedContact.openPhoneContact.customFields,
+                  externalId: mappedContact.openPhoneContact.externalId,
+                }
+              ),
+            maxRetries,
+            `update-contact:${duplicateCheck.existingContactId}`,
+            retryDelay
           );
           
           return { action: 'updated', contactId: duplicateCheck.existingContactId };
@@ -393,7 +416,12 @@ export class OpenPhoneContactSyncService {
         return { action: 'created' };
       }
 
-      const createdContact = await this.openPhoneClient.createContact(mappedContact.openPhoneContact);
+      const createdContact = await this.executeWithRetries(
+        () => this.openPhoneClient.createContact(mappedContact.openPhoneContact),
+        maxRetries,
+        `create-contact:${mappedContact.clientId}`,
+        retryDelay
+      );
       
       // Update duplicate detection cache
       this.duplicateService.updateCache([createdContact]);
@@ -559,6 +587,42 @@ export class OpenPhoneContactSyncService {
         throw new Error(`Database initialization failed: ${initError instanceof Error ? initError.message : 'Unknown error'}`);
       }
     }
+  }
+
+  private resolveMaxRetries(options: SyncOptions): number {
+    return options.maxRetries ?? this.retryPolicy.attempts;
+  }
+
+  private getBaseRetryDelay(): number {
+    return this.retryPolicy.delay;
+  }
+
+  private async executeWithRetries<T>(
+    operation: () => Promise<T>,
+    maxRetries: number,
+    label: string,
+    baseDelay: number,
+    attempt: number = 0
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+
+      const waitTime = baseDelay * Math.pow(2, attempt);
+      console.warn(
+        `Retrying ${label} (attempt ${attempt + 2} of ${maxRetries + 1}) due to error:`,
+        error
+      );
+      await this.delay(waitTime);
+      return this.executeWithRetries(operation, maxRetries, label, baseDelay, attempt + 1);
+    }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 

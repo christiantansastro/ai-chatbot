@@ -50,6 +50,14 @@ export class ClientDatabaseService {
     this.serviceClient = serviceSupabase || supabase;
   }
 
+  private getClientInstance(): any {
+    const client = this.serviceClient || this.supabase;
+    if (!client) {
+      throw new Error('Database client not initialized');
+    }
+    return client;
+  }
+
   /**
    * Get all clients from the database
    */
@@ -378,6 +386,162 @@ export class ClientDatabaseService {
     }
 
     return { processed, errors };
+  }
+
+  /**
+   * Find client by OpenPhone contact ID
+   */
+  async findClientByOpenPhoneContactId(contactId?: string): Promise<Client | null> {
+    if (!contactId) return null;
+    try {
+      const client = this.getClientInstance();
+      const { data, error } = await client
+        .from('clients')
+        .select('*')
+        .eq('openphone_contact_id', contactId)
+        .limit(1);
+
+      if (error) {
+        console.error('Error finding client by OpenPhone contact ID:', error);
+        return null;
+      }
+
+      return data && data[0] ? (data[0] as Client) : null;
+    } catch (error) {
+      console.error('Error finding client by OpenPhone contact ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Find a client by name (case-insensitive)
+   */
+  async findClientByName(name?: string): Promise<Client | null> {
+    if (!name) return null;
+    try {
+      const client = this.getClientInstance();
+      const { data, error } = await client
+        .from('clients')
+        .select('*')
+        .ilike('client_name', `%${name}%`)
+        .limit(1);
+
+      if (error) {
+        console.error('Error finding client by name:', error);
+        return null;
+      }
+
+      return data && data[0] ? (data[0] as Client) : null;
+    } catch (error) {
+      console.error('Error finding client by name:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Find a client by any of the provided phone numbers
+   */
+  async findClientByPhoneNumbers(phoneNumbers: string[]): Promise<Client | null> {
+    if (!phoneNumbers || phoneNumbers.length === 0) {
+      return null;
+    }
+
+    const normalized = phoneNumbers
+      .map(number => this.normalizePhone(number))
+      .filter(Boolean);
+
+    if (normalized.length === 0) {
+      return null;
+    }
+
+    try {
+      const variants = new Set<string>();
+      normalized.forEach(value => {
+        variants.add(value);
+        if (value.startsWith('+1')) {
+          variants.add(value.substring(2));
+        } else if (!value.startsWith('+') && value.length === 10) {
+          variants.add(`+1${value}`);
+        }
+      });
+
+      const client = this.getClientInstance();
+      const orFilters = Array.from(variants)
+        .map(value => `phone.eq.${value}`)
+        .join(',');
+      const { data, error } = await client
+        .from('clients')
+        .select('*')
+        .or(orFilters)
+        .limit(1);
+
+      if (error) {
+        console.error('Error finding client by phone number:', error);
+        return null;
+      }
+
+      return data && data[0] ? (data[0] as Client) : null;
+    } catch (error) {
+      console.error('Error finding client by phone number:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a minimal client from OpenPhone contact data
+   */
+  async createClientFromOpenPhoneContact(contact: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    openPhoneContactId?: string;
+  }): Promise<Client> {
+    const client = this.getClientInstance();
+    const preferredName =
+      contact.name ||
+      (contact.phone ? `OpenPhone Contact ${this.normalizePhone(contact.phone)}` : 'OpenPhone Contact');
+
+    const payload = {
+      client_name: preferredName,
+      phone: contact.phone || null,
+      email: contact.email || null,
+      client_type: null,
+      openphone_contact_id: contact.openPhoneContactId || null,
+    };
+
+    const { data, error } = await client
+      .from('clients')
+      .insert(payload)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Error creating client from OpenPhone contact:', error);
+      throw new Error(`Failed to create client: ${error.message}`);
+    }
+
+    return data as Client;
+  }
+
+  /**
+   * Attach OpenPhone contact id to an existing client
+   */
+  async attachOpenPhoneContactId(clientId: string, contactId?: string | null): Promise<void> {
+    if (!contactId) return;
+    const client = this.getClientInstance();
+    const { error } = await client
+      .from('clients')
+      .update({ openphone_contact_id: contactId })
+      .eq('id', clientId);
+
+    if (error) {
+      console.error('Error attaching OpenPhone contact ID:', error);
+    }
+  }
+
+  private normalizePhone(phone?: string | null): string {
+    if (!phone) return '';
+    return phone.replace(/[^\d+]/g, '');
   }
 }
 

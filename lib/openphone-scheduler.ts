@@ -7,6 +7,7 @@
 
 import { getSyncService, type SyncResult } from './openphone-sync-service';
 import { getClientDatabaseService } from './client-database-service';
+import { databaseService, databaseFactory, DatabaseConfigLoader } from './db/database-factory';
 
 export interface SyncJobConfig {
   enabled: boolean;
@@ -60,6 +61,7 @@ export class OpenPhoneSyncScheduler {
   private cronJob: NodeJS.Timeout | null = null;
   private syncService = getSyncService();
   private clientDbService = getClientDatabaseService();
+  private dbInitPromise: Promise<void> | null = null;
   private metrics: SyncJobMetrics = {
     totalRuns: 0,
     successfulRuns: 0,
@@ -108,6 +110,43 @@ export class OpenPhoneSyncScheduler {
 
     // Load previous metrics from storage (in a real implementation)
     this.loadMetrics();
+  }
+
+  private getIncrementalStartDate(): Date {
+    if (this.status.lastRun) {
+      return new Date(this.status.lastRun);
+    }
+    return new Date(Date.now() - 24 * 60 * 60 * 1000);
+  }
+
+  private async ensureDatabaseClientsReady(): Promise<void> {
+    if (this.dbInitPromise) {
+      return this.dbInitPromise;
+    }
+
+    this.dbInitPromise = (async () => {
+      if (!databaseFactory.isConnected()) {
+        const config = DatabaseConfigLoader.loadFromEnvironment();
+        await databaseService.initialize(config);
+      }
+
+      const adapter = databaseFactory.getAdapter();
+
+      if (adapter && (adapter.supabase || adapter.serviceSupabase)) {
+        this.clientDbService.initialize(
+          adapter.supabase,
+          adapter.serviceSupabase || adapter.supabase
+        );
+      } else {
+        throw new Error('Database adapter did not expose Supabase clients');
+      }
+    })();
+
+    try {
+      await this.dbInitPromise;
+    } finally {
+      this.dbInitPromise = null;
+    }
   }
 
   /**
@@ -163,18 +202,18 @@ export class OpenPhoneSyncScheduler {
       throw new Error('Sync job is already running');
     }
 
-    this.updateStatus({ status: 'running', startTime: new Date() });
+    const runStartTime = new Date();
+    this.updateStatus({ status: 'running', startTime: runStartTime });
 
     try {
       const startTime = Date.now();
-      
-      // Initialize database service if needed
-      this.clientDbService.initialize(null); // Would be set with actual Supabase client
+      await this.ensureDatabaseClientsReady();
+      const updatedSince = this.getIncrementalStartDate();
 
       // Run the sync with appropriate options
       const syncOptions = {
         syncMode: 'incremental' as const,
-        updatedSince: this.status.lastRun || new Date(Date.now() - 24 * 60 * 60 * 1000), // Last 24 hours if no previous run
+        updatedSince,
         batchSize: this.config.syncOptions.batchSize,
         clientType: this.config.syncOptions.clientType,
         continueOnError: this.config.syncOptions.continueOnError,
@@ -195,6 +234,7 @@ export class OpenPhoneSyncScheduler {
         endTime: new Date(),
         lastResult: result,
         runtime,
+        lastRun: result.success ? runStartTime : this.status.lastRun,
       });
 
       // Update metrics
@@ -370,11 +410,30 @@ export class OpenPhoneSyncScheduler {
   private loadMetrics(): void {
     // In a real implementation, load from database, file, or key-value store
     try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+
       const saved = localStorage.getItem(`sync_metrics_${this.jobId}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        this.metrics = { ...this.metrics, ...parsed };
-        this.jobHistory = parsed.jobHistory || [];
+        if (parsed.metrics) {
+          this.metrics = { ...this.metrics, ...parsed.metrics };
+        } else {
+          const { jobHistory, ...legacyMetrics } = parsed;
+          this.metrics = { ...this.metrics, ...legacyMetrics };
+        }
+
+        if (Array.isArray(parsed.jobHistory)) {
+          this.jobHistory = parsed.jobHistory.map((entry: any) => ({
+            ...entry,
+            timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+          }));
+        }
+
+        if (parsed.lastRun) {
+          this.status.lastRun = new Date(parsed.lastRun);
+        }
       }
     } catch (error) {
       console.warn('Failed to load sync metrics:', error);
@@ -386,9 +445,17 @@ export class OpenPhoneSyncScheduler {
    */
   private saveMetrics(): void {
     try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+
       const toSave = {
-        ...this.metrics,
-        jobHistory: this.jobHistory.slice(0, 50), // Save only recent history
+        metrics: this.metrics,
+        jobHistory: this.jobHistory.slice(0, 50).map(entry => ({
+          ...entry,
+          timestamp: entry.timestamp.toISOString(),
+        })), // Save only recent history
+        lastRun: this.status.lastRun ? this.status.lastRun.toISOString() : null,
       };
       localStorage.setItem(`sync_metrics_${this.jobId}`, JSON.stringify(toSave));
     } catch (error) {

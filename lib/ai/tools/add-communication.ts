@@ -98,6 +98,7 @@ export const addCommunication = tool({
         notes: commData.notes,
         related_case_number: commData.relatedCaseNumber || null,
         court_date: commData.courtDate || null,
+        source: 'chatbot',
       };
 
       // Add client reference based on what's available

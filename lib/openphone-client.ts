@@ -13,6 +13,7 @@ interface OpenPhoneConfig {
   rateLimit: {
     requestsPerMinute: number;
     requestsPerHour: number;
+    maxConcurrentRequests: number;
   };
   sync: {
     dailySchedule: string;
@@ -27,6 +28,7 @@ interface OpenPhoneConfig {
 }
 
 function getOpenPhoneConfig(): OpenPhoneConfig {
+  const maxConcurrentRequests = parseInt(process.env.OPENPHONE_MAX_CONCURRENT_REQUESTS || '5', 10);
   return {
     apiKey: process.env.OPENPHONE_API_KEY || '',
     baseUrl: 'https://api.openphone.com',
@@ -34,6 +36,7 @@ function getOpenPhoneConfig(): OpenPhoneConfig {
     rateLimit: {
       requestsPerMinute: 60,
       requestsPerHour: 3600,
+      maxConcurrentRequests,
     },
     sync: {
       dailySchedule: '0 2 * * *',
@@ -78,12 +81,52 @@ interface RateLimitInfo {
   limit: number;
 }
 
+interface PaginatedMeta {
+  nextCursor?: string | null;
+  hasMore?: boolean;
+}
+
+export interface ListCallsParams {
+  limit?: number;
+  cursor?: string;
+  startTime?: string;
+  endTime?: string;
+}
+
+export interface ListConversationsParams {
+  limit?: number;
+  cursor?: string;
+  updatedAfter?: string;
+  updatedBefore?: string;
+}
+
 // Rate limiting state
 let rateLimitState = {
   remaining: 60,
   reset: Date.now() + 60000, // 1 minute
   lastRequest: 0,
   limit: 60,
+};
+
+const concurrencyState: {
+  active: number;
+  max: number;
+  queue: Array<() => void>;
+} = {
+  active: 0,
+  max: parseInt(process.env.OPENPHONE_MAX_CONCURRENT_REQUESTS || '5', 10),
+  queue: [],
+};
+
+const quotaState = {
+  minute: {
+    resetAt: Date.now(),
+    count: 0,
+  },
+  hour: {
+    resetAt: Date.now(),
+    count: 0,
+  },
 };
 
 // API Client Class
@@ -96,6 +139,11 @@ export class OpenPhoneAPIClient {
     this.config = config || getOpenPhoneConfig();
     this.baseUrl = this.config.baseUrl;
     this.apiKey = this.config.apiKey;
+    concurrencyState.max = Math.max(
+      1,
+      this.config.rateLimit.maxConcurrentRequests || concurrencyState.max
+    );
+    this.resetQuotaWindows();
   }
 
   /**
@@ -107,6 +155,9 @@ export class OpenPhoneAPIClient {
     data?: any,
     retryCount: number = 0
   ): Promise<T> {
+    await this.acquireConcurrencySlot();
+    let slotReleased = false;
+    await this.enforceLocalQuota();
     // Rate limiting check
     await this.checkRateLimit();
 
@@ -128,6 +179,7 @@ export class OpenPhoneAPIClient {
 
     try {
       const response = await fetch(url, config);
+      this.recordLocalQuotaUsage();
       const rateLimitInfo = this.extractRateLimitInfo(response.headers);
       this.updateRateLimitState(rateLimitInfo);
 
@@ -149,12 +201,18 @@ export class OpenPhoneAPIClient {
         
         // Retry on rate limit or server errors
         if ((apiError.status === 429 || apiError.status >= 500) && retryCount < this.config.sync.retryAttempts) {
+          this.releaseConcurrencySlot();
+          slotReleased = true;
           await this.delay(this.config.sync.retryDelay * Math.pow(2, retryCount)); // Exponential backoff
           return this.makeRequest<T>(endpoint, method, data, retryCount + 1);
         }
       }
 
       throw error;
+    } finally {
+      if (!slotReleased) {
+        this.releaseConcurrencySlot();
+      }
     }
   }
 
@@ -179,6 +237,14 @@ export class OpenPhoneAPIClient {
       lastRequest: Date.now(),
       limit: info.limit,
     };
+  }
+
+  /**
+   * Track local quota usage
+   */
+  private recordLocalQuotaUsage(): void {
+    quotaState.minute.count++;
+    quotaState.hour.count++;
   }
 
   /**
@@ -214,6 +280,70 @@ export class OpenPhoneAPIClient {
     }
   }
 
+  private resetQuotaWindows(): void {
+    const now = Date.now();
+    quotaState.minute.resetAt = now + 60 * 1000;
+    quotaState.minute.count = 0;
+    quotaState.hour.resetAt = now + 60 * 60 * 1000;
+    quotaState.hour.count = 0;
+  }
+
+  private async enforceLocalQuota(): Promise<void> {
+    while (true) {
+      const now = Date.now();
+
+      if (now >= quotaState.minute.resetAt) {
+        quotaState.minute.resetAt = now + 60 * 1000;
+        quotaState.minute.count = 0;
+      }
+
+      if (now >= quotaState.hour.resetAt) {
+        quotaState.hour.resetAt = now + 60 * 60 * 1000;
+        quotaState.hour.count = 0;
+      }
+
+      const minuteLimitReached = quotaState.minute.count >= this.config.rateLimit.requestsPerMinute;
+      const hourLimitReached = quotaState.hour.count >= this.config.rateLimit.requestsPerHour;
+
+      if (!minuteLimitReached && !hourLimitReached) {
+        return;
+      }
+
+      const waitUntil = Math.min(
+        minuteLimitReached ? quotaState.minute.resetAt : Number.POSITIVE_INFINITY,
+        hourLimitReached ? quotaState.hour.resetAt : Number.POSITIVE_INFINITY
+      );
+
+      const waitTime = Math.max(waitUntil - now, 0) + 50;
+      await this.delay(waitTime);
+    }
+  }
+
+  private async acquireConcurrencySlot(): Promise<void> {
+    if (concurrencyState.active < concurrencyState.max) {
+      concurrencyState.active++;
+      return;
+    }
+
+    await new Promise<void>(resolve => {
+      concurrencyState.queue.push(() => {
+        concurrencyState.active++;
+        resolve();
+      });
+    });
+  }
+
+  private releaseConcurrencySlot(): void {
+    if (concurrencyState.active > 0) {
+      concurrencyState.active--;
+    }
+
+    const next = concurrencyState.queue.shift();
+    if (next) {
+      next();
+    }
+  }
+
   /**
    * Create a properly formatted API error
    */
@@ -240,6 +370,13 @@ export class OpenPhoneAPIClient {
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  getRetryPolicy(): { attempts: number; delay: number } {
+    return {
+      attempts: this.config.sync.retryAttempts,
+      delay: this.config.sync.retryDelay,
+    };
   }
 
   /**
@@ -323,6 +460,44 @@ export class OpenPhoneAPIClient {
    */
   async deleteContact(contactId: string): Promise<void> {
     await this.makeRequest(`/contacts/${contactId}`, 'DELETE');
+  }
+
+  /**
+   * List calls with pagination
+   */
+  async listCalls(params: ListCallsParams = {}): Promise<{ data: any[]; nextCursor?: string | null }> {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', params.limit.toString());
+    if (params.cursor) query.set('cursor', params.cursor);
+    if (params.startTime) query.set('start', params.startTime);
+    if (params.endTime) query.set('end', params.endTime);
+
+    const endpoint = `/calls${query.toString() ? `?${query.toString()}` : ''}`;
+    const response = await this.makeRequest<{ data: any[]; meta?: PaginatedMeta; nextCursor?: string }>(endpoint);
+    return {
+      data: response.data || [],
+      nextCursor: response.meta?.nextCursor ?? response.nextCursor ?? null,
+    };
+  }
+
+  /**
+   * List conversations with pagination
+   */
+  async listConversations(
+    params: ListConversationsParams = {}
+  ): Promise<{ data: any[]; nextCursor?: string | null }> {
+    const query = new URLSearchParams();
+    if (params.limit) query.set('limit', params.limit.toString());
+    if (params.cursor) query.set('cursor', params.cursor);
+    if (params.updatedAfter) query.set('updated_after', params.updatedAfter);
+    if (params.updatedBefore) query.set('updated_before', params.updatedBefore);
+
+    const endpoint = `/conversations${query.toString() ? `?${query.toString()}` : ''}`;
+    const response = await this.makeRequest<{ data: any[]; meta?: PaginatedMeta; nextCursor?: string }>(endpoint);
+    return {
+      data: response.data || [],
+      nextCursor: response.meta?.nextCursor ?? response.nextCursor ?? null,
+    };
   }
 
   /**

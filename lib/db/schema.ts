@@ -148,6 +148,7 @@ export const client = pgTable("Client", {
   relationship_2: varchar("relationship_2", { length: 255 }),
   contact_2_phone: varchar("contact_2_phone", { length: 50 }),
   notes: text("notes"),
+  openphone_contact_id: text("openphone_contact_id"),
   // Common fields for both client types
   county: varchar("county", { length: 255 }),
   court_date: date("court_date"),
