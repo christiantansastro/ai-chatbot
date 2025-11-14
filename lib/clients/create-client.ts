@@ -238,8 +238,10 @@ export function formatClientRecord(data: any) {
       : "Not provided",
     contact1: data.contact_1 || "Not provided",
     relationship1: data.relationship_1 || "Not provided",
+    contact1Phone: data.contact_1_phone || "Not provided",
     contact2: data.contact_2 || "Not provided",
     relationship2: data.relationship_2 || "Not provided",
+    contact2Phone: data.contact_2_phone || "Not provided",
     notes: data.notes || "No notes",
     county: data.county || "Not provided",
     arrested:

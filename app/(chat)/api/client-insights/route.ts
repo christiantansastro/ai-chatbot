@@ -16,6 +16,7 @@ const SECTION_SCHEMA = z.enum([
   "communications",
   "financials",
   "files",
+  "all",
 ]);
 
 const getQuerySchema = z.object({
@@ -230,6 +231,13 @@ async function fetchSectionData({
       );
     case "files":
       return fetchFiles(supabase, clientId, clientName);
+    case "all":
+      return fetchAllSections({
+        supabase,
+        clientId,
+        clientName,
+        includeHistory,
+      });
     default:
       throw new Error("Unsupported section");
   }
@@ -241,7 +249,7 @@ async function fetchOverview(
   clientName: string,
 ) {
   let builder = supabase
-    .from("clients")
+    .from("client_profiles")
     .select("*")
     .order("updated_at", { ascending: false })
     .limit(1);
@@ -252,7 +260,25 @@ async function fetchOverview(
     builder = builder.ilike("client_name", `%${clientName}%`);
   }
 
-  const { data, error } = await builder;
+  let { data, error } = await builder;
+
+  if (isMissingRelationError(error)) {
+    let fallback = supabase
+      .from("clients")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1);
+
+    if (clientId) {
+      fallback = fallback.eq("id", clientId);
+    } else {
+      fallback = fallback.ilike("client_name", `%${clientName}%`);
+    }
+
+    const fallbackResult = await fallback;
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
 
   if (error) {
     throw error;
@@ -297,11 +323,34 @@ async function fetchOverview(
     formatFact("On parole", formatted.onParole),
   ].join("\n");
 
+  const formatContactLine = (
+    label: string,
+    name: string,
+    relationship: string,
+    phone: string | undefined,
+  ) => {
+    const segments = [`${name} (${relationship})`];
+    if (phone && isMeaningful(phone)) {
+      segments.push(`Phone: ${phone}`);
+    }
+    return `- ${label}: ${segments.join(" - ")}`;
+  };
+
   const contactsSection = [
     "",
     "**Key Contacts**",
-    `- Primary: ${formatted.contact1} (${formatted.relationship1})`,
-    `- Secondary: ${formatted.contact2} (${formatted.relationship2})`,
+    formatContactLine(
+      "Primary",
+      formatted.contact1,
+      formatted.relationship1,
+      formatted.contact1Phone,
+    ),
+    formatContactLine(
+      "Secondary",
+      formatted.contact2,
+      formatted.relationship2,
+      formatted.contact2Phone,
+    ),
   ].join("\n");
 
   const summary = buildOverviewSummary(formatted);
@@ -322,7 +371,7 @@ async function fetchCommunications(
   clientName: string,
 ) {
   let builder = supabase
-    .from("communications")
+    .from("client_communications")
     .select(
       `
         id,
@@ -330,6 +379,8 @@ async function fetchCommunications(
         client_name,
         communication_date,
         communication_type,
+        direction,
+        priority,
         subject,
         notes
       `,
@@ -344,7 +395,35 @@ async function fetchCommunications(
     builder = builder.ilike("client_name", `%${clientName}%`);
   }
 
-  const { data, error } = await builder;
+  let { data, error } = await builder;
+
+  if (isMissingRelationError(error)) {
+    let fallback = supabase
+      .from("communications")
+      .select(
+        `
+          *,
+          clients!inner(client_name)
+        `,
+      )
+      .order("communication_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(12);
+
+    if (clientId) {
+      fallback = fallback.eq("client_id", clientId);
+    } else {
+      fallback = fallback.ilike("clients.client_name", `%${clientName}%`);
+    }
+
+    const fallbackResult = await fallback;
+    const fallbackData = fallbackResult.data ?? [];
+    data = fallbackData.map((entry: any) => ({
+      ...entry,
+      client_name: entry.client_name ?? entry.clients?.client_name ?? null,
+    }));
+    error = fallbackResult.error;
+  }
 
   if (error) {
     throw error;
@@ -406,24 +485,11 @@ async function fetchFinancials(
   let data: any[] | null = null;
   let error: any = null;
 
-  if (clientId) {
-    const result = await buildQuery().eq("client_id", clientId);
-    data = result.data;
-    error = result.error;
-
-    if (error && (error.code === "42703" || /client_id/.test(error.message))) {
-      const fallback = await buildQuery().ilike(
-        "client_name",
-        `%${clientName}%`,
-      );
-      data = fallback.data;
-      error = fallback.error;
-    }
-  } else {
-    const result = await buildQuery().ilike("client_name", `%${clientName}%`);
-    data = result.data;
-    error = result.error;
-  }
+  const result = clientId
+    ? await buildQuery().eq("client_id", clientId)
+    : await buildQuery().ilike("client_name", `%${clientName}%`);
+  data = result.data;
+  error = result.error;
 
   if (error) {
     throw error;
@@ -507,9 +573,18 @@ async function fetchFiles(
   clientId: string | undefined,
   clientName: string,
 ) {
+  let nameFilter = clientName;
+
+  if (clientId) {
+    const resolvedName = await resolveClientName(supabase, clientId);
+    if (resolvedName) {
+      nameFilter = resolvedName;
+    }
+  }
+
   const buildQuery = () =>
     supabase
-      .from("files")
+      .from("client_files")
       .select(
         `
         id,
@@ -523,25 +598,30 @@ async function fetchFiles(
       .order("upload_timestamp", { ascending: false })
       .limit(15);
 
-  let data: any[] | null = null;
-  let error: any = null;
+  let result = await buildQuery().ilike("client_name", `%${nameFilter}%`);
 
-  if (clientId) {
-    const result = await buildQuery().eq("client_id", clientId);
-    data = result.data;
-    error = result.error;
+  let data = result.data;
+  let error = result.error;
 
-    // Fallback if the column is missing in the environment
-    if (error && (error.code === "42703" || /client_id/.test(error.message))) {
-      const fallback = await buildQuery().ilike(
-        "client_name",
-        `%${clientName}%`,
-      );
-      data = fallback.data;
-      error = fallback.error;
-    }
-  } else {
-    const result = await buildQuery().ilike("client_name", `%${clientName}%`);
+  if (isMissingRelationError(error) || isMissingColumnError(error)) {
+    const fallbackQuery = () =>
+      supabase
+        .from("files")
+        .select(
+          `
+          id,
+          client_name,
+          file_name,
+          file_type,
+          file_url,
+          upload_timestamp
+        `,
+        )
+        .order("upload_timestamp", { ascending: false })
+        .limit(15);
+
+    result = await fallbackQuery().ilike("client_name", `%${nameFilter}%`);
+
     data = result.data;
     error = result.error;
   }
@@ -575,6 +655,71 @@ async function fetchFiles(
   };
 }
 
+async function fetchAllSections({
+  supabase,
+  clientId,
+  clientName,
+  includeHistory,
+}: {
+  supabase: ReturnType<typeof createServerSupabaseClient>;
+  clientId?: string;
+  clientName: string;
+  includeHistory: boolean;
+}) {
+  const [overview, communications, financials, files] = await Promise.all([
+    fetchOverview(supabase, clientId, clientName),
+    fetchCommunications(supabase, clientId, clientName),
+    fetchFinancials(supabase, clientId, clientName, includeHistory ?? true),
+    fetchFiles(supabase, clientId, clientName),
+  ]);
+
+  const sections = [
+    { title: "Client Overview", data: overview },
+    { title: "Communication History", data: communications },
+    { title: "Financials", data: financials },
+    { title: "Files", data: files },
+  ];
+
+  const content = sections
+    .map(({ title, data }) => {
+      if (!data.content) {
+        return null;
+      }
+      return [`#### ${title}`, data.content].join("\n");
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  const summary =
+    sections
+      .map(({ data }) => data.summary)
+      .filter(Boolean)
+      .join(" ")
+      .trim() ||
+    `Compiled all available information for ${clientName}.`;
+
+  const clientLabel =
+    overview.clientLabel ||
+    communications.clientLabel ||
+    financials.clientLabel ||
+    files.clientLabel ||
+    clientName;
+
+  return {
+    clientLabel,
+    content:
+      content ||
+      `No additional information was available for ${clientLabel}.`,
+    summary,
+    meta: {
+      overview: overview.meta,
+      communications: communications.meta,
+      financials: financials.meta,
+      files: files.meta,
+    },
+  };
+}
+
 function buildAssistantMessage({
   section,
   clientLabel,
@@ -587,7 +732,8 @@ function buildAssistantMessage({
   summary: string;
 }) {
   const id = generateUUID();
-  const sectionLabel = titleCase(section);
+  const sectionLabel =
+    section === "all" ? "All data" : titleCase(section);
 
   const text = [
     `### ${sectionLabel} for ${clientLabel}`,
@@ -633,6 +779,52 @@ function titleCase(value: string) {
         : segment,
     )
     .join(" ");
+}
+
+function isMissingRelationError(error: any) {
+  if (!error) return false;
+  return (
+    error.code === "42P01" ||
+    (typeof error.message === "string" &&
+      error.message.toLowerCase().includes("does not exist"))
+  );
+}
+
+function isMissingColumnError(error: any) {
+  if (!error) return false;
+  return (
+    error.code === "42703" ||
+    (typeof error.message === "string" &&
+      error.message.toLowerCase().includes("column"))
+  );
+}
+
+async function resolveClientName(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  clientId: string,
+) {
+  let { data, error } = await supabase
+    .from("client_profiles")
+    .select("client_name")
+    .eq("id", clientId)
+    .limit(1);
+
+  if (isMissingRelationError(error)) {
+    const fallback = await supabase
+      .from("clients")
+      .select("client_name")
+      .eq("id", clientId)
+      .limit(1);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    console.warn("Failed to resolve client name for files view", error);
+    return null;
+  }
+
+  return data?.[0]?.client_name ?? null;
 }
 
 type FormattedClient = ReturnType<typeof formatClientRecord>;

@@ -211,3 +211,76 @@ export const files = pgTable("files", {
 });
 
 export type FileRecord = InferSelectModel<typeof files>;
+
+export interface ClientBalanceView {
+  client_name: string | null;
+  total_quoted: number;
+  total_paid: number;
+  outstanding_balance: number;
+  transaction_count: number;
+  latest_transaction_date: string | null;
+}
+
+export interface ClientProfileView {
+  id: string;
+  client_name: string;
+  client_type: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  notes: string | null;
+  contact_1: string | null;
+  relationship_1: string | null;
+  contact_1_phone: string | null;
+  contact_2: string | null;
+  relationship_2: string | null;
+  contact_2_phone: string | null;
+  county: string | null;
+  court_date: string | null;
+  quoted: string | null;
+  initial_payment: string | null;
+  due_date_balance: string | null;
+  arrested: boolean | null;
+  arrested_county: string | null;
+  currently_incarcerated: boolean | null;
+  incarceration_location: string | null;
+  incarceration_reason: string | null;
+  last_bond_hearing_date: string | null;
+  last_bond_hearing_location: string | null;
+  on_probation: boolean | null;
+  probation_county: string | null;
+  probation_officer: string | null;
+  on_parole: boolean | null;
+  parole_officer: string | null;
+  case_type: string | null;
+  children_involved: boolean | null;
+  children_details: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ClientCommunicationView {
+  id: string;
+  client_id: string | null;
+  client_name: string | null;
+  communication_date: string | null;
+  communication_type: string | null;
+  subject: string | null;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ClientFileView {
+  id: string;
+  client_name: string | null;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  file_url: string;
+  upload_timestamp: string | null;
+  temp_queue_id: string | null;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+}

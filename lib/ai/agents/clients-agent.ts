@@ -1,8 +1,36 @@
+import type { ClientProfileView } from "@/lib/db/schema";
 import { BaseAgent, AgentCategory, AgentResponse } from "./base-agent";
-import { queryClients } from "../tools/query-clients";
+import { runSupabaseSqlTool } from "../tools/run-supabase-sql";
+import { getClientProfileTool } from "../tools/get-client-profile";
+import { getClientByNameTool } from "../tools/get-client-by-name";
+import { listClientsWithOutstandingBalanceTool } from "../tools/list-clients-with-outstanding-balance";
 import { createClientReport } from "../tools/create-client-report";
 import { updateClient } from "../tools/update-client";
-import { queryOutstandingBalances } from "../tools/query-outstanding-balances";
+import {
+  findClientByName,
+  listClientsWithOutstandingBalance,
+  type FinancialRecord,
+} from "../data/financials";
+import { searchClientProfiles } from "../data/clients";
+
+type ClientFinancialSummary = {
+  id: string | null;
+  name: string;
+  totalQuoted: number;
+  totalPaid: number;
+  outstandingBalance: number;
+  lastTransactionDate: string | null;
+  primaryCaseNumber: string | null;
+  recentTransactions: Array<{
+    id: string;
+    type: string;
+    amount: number;
+    transactionDate: string | null;
+    paymentMethod: string | null;
+    serviceDescription: string | null;
+    notes: string | null;
+  }>;
+};
 import { normalizePhoneNumberForStorage, stripPhoneToComparable } from "../../utils/phone";
 import { extractClientNameFromQuery } from "../../utils/client-validation";
 
@@ -32,10 +60,12 @@ export class ClientsAgent extends BaseAgent {
     );
 
     // Register client-specific tools
-    this.registerTool("queryClients", queryClients);
+    this.registerTool("run_supabase_sql", runSupabaseSqlTool);
+    this.registerTool("get_client_profile", getClientProfileTool);
+    this.registerTool("get_client_by_name", getClientByNameTool);
+    this.registerTool("list_clients_with_outstanding_balance", listClientsWithOutstandingBalanceTool);
     this.registerTool("createClientReport", createClientReport);
     this.registerTool("updateClient", updateClient);
-    this.registerTool("queryOutstandingBalances", queryOutstandingBalances);
   }
 
 /**
@@ -143,99 +173,93 @@ export class ClientsAgent extends BaseAgent {
     const startTime = Date.now();
 
     try {
-      // Extract search parameters from query
       const searchParams = this.extractSearchParameters(query);
 
-      // Use the queryClients tool to get actual client data
-      const searchResults = await (queryClients as any)({
-        query: searchParams.query,
-        limit: searchParams.limit,
-        filterByArrested: searchParams.filterByArrested,
-        filterByIncarcerated: searchParams.filterByIncarcerated,
-        filterByProbation: searchParams.filterByProbation,
-        filterByParole: searchParams.filterByParole,
-        clientType: searchParams.clientType,
-        fuzzyThreshold: searchParams.fuzzyThreshold
-      });
+      if (!searchParams.query) {
+        return {
+          success: false,
+          message: "Please provide a client name to search for financial records.",
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime: Date.now() - startTime,
+            toolsUsed: ['get_client_by_name'],
+            confidence: 0.4
+          }
+        };
+      }
+
+      const [profiles, financialRecords] = await Promise.all([
+        searchClientProfiles(searchParams.query, searchParams.limit),
+        findClientByName(searchParams.query, searchParams.limit * 3),
+      ]);
+
+      const financialSummaries = this.aggregateClientRecords(financialRecords);
+      const summaryMap = new Map(
+        financialSummaries.map((summary) => [
+          summary.name.toLowerCase(),
+          summary,
+        ])
+      );
 
       const processingTime = Date.now() - startTime;
 
-      if (searchResults.success && searchResults.results && searchResults.results.length > 0) {
-        // Format client data for display with alternative contacts
-        const formattedClients = searchResults.results.map((client: any) => {
-          const formattedClient: any = {
-            id: client.id,
-            name: client.name,
-            clientType: client.clientType,
-            email: client.email,
-            phone: client.phone,
-            dateOfBirth: client.dateOfBirth,
-            address: client.address,
-            notes: client.notes,
-            county: client.county,
-            courtDate: client.courtDate,
-            quoted: client.quoted,
-            initialPayment: client.initialPayment,
-            dueDateBalance: client.dueDateBalance,
-            arrested: client.arrested,
-            currentlyIncarcerated: client.currentlyIncarcerated,
-            onProbation: client.onProbation,
-            onParole: client.onParole,
-            caseType: client.caseType,
-            childrenInvolved: client.childrenInvolved,
-            intakeDate: client.intakeDate,
-            lastUpdated: client.lastUpdated
-          };
-
-          // Add alternative contact information if available
-          if (client.contact1 && client.contact1 !== 'Not provided') {
-            formattedClient.alternativeContact1 = {
-              name: client.contact1,
-              relationship: client.relationship1,
-              phone: client.contact1Phone
-            };
-          }
-
-          if (client.contact2 && client.contact2 !== 'Not provided') {
-            formattedClient.alternativeContact2 = {
-              name: client.contact2,
-              relationship: client.relationship2,
-              phone: client.contact2Phone
-            };
-          }
-
-          return formattedClient;
-        });
+      if (profiles.length > 0) {
+        const formattedProfiles = profiles.map((profile) =>
+          this.formatClientProfile(
+            profile,
+            summaryMap.get((profile.client_name || "").toLowerCase())
+          )
+        );
 
         return {
           success: true,
-          message: `Found ${searchResults.results.length} client${searchResults.results.length === 1 ? '' : 's'}`,
+          message: `Found ${formattedProfiles.length} client${formattedProfiles.length === 1 ? '' : 's'} matching "${searchParams.query}"`,
           data: {
-            clients: formattedClients,
-            totalCount: searchResults.totalCount,
-            searchMethod: searchResults.searchMethod
+            clients: formattedProfiles,
+            totalCount: formattedProfiles.length,
+            searchQuery: searchParams.query,
           },
           agent: this.name,
           category: this.category,
           metadata: {
             processingTime,
-            toolsUsed: ['queryClients'],
-            confidence: 0.9
-          }
+            toolsUsed: ['get_client_profile', 'get_client_by_name'],
+            confidence: 0.9,
+          },
         };
-      } else {
+      }
+
+      if (financialSummaries.length > 0) {
         return {
-          success: false,
-          message: searchResults.message || `No clients found matching "${searchParams.query || 'all clients'}"`,
+          success: true,
+          message: `No direct profile match, but found ${financialSummaries.length} client${financialSummaries.length === 1 ? '' : 's'} with related financial history.`,
+          data: {
+            clients: financialSummaries,
+            totalCount: financialSummaries.length,
+            searchQuery: searchParams.query,
+          },
           agent: this.name,
           category: this.category,
           metadata: {
             processingTime,
-            toolsUsed: ['queryClients'],
-            confidence: 0.5
-          }
+            toolsUsed: ['get_client_by_name'],
+            confidence: 0.7,
+          },
         };
       }
+
+      return {
+        success: false,
+        message: `No client records found for "${searchParams.query}".`,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['get_client_profile', 'get_client_by_name'],
+          confidence: 0.4,
+        },
+      };
     } catch (error) {
       const processingTime = Date.now() - startTime;
       return {
@@ -245,7 +269,7 @@ export class ClientsAgent extends BaseAgent {
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: ['queryClients'],
+          toolsUsed: ['get_client_profile', 'get_client_by_name'],
           confidence: 0
         }
       };
@@ -667,20 +691,23 @@ export class ClientsAgent extends BaseAgent {
     const startTime = Date.now();
 
     try {
-      // Use the queryOutstandingBalances tool
-      const result = await (queryOutstandingBalances as any)({ limit: 50 });
+      const clients = await listClientsWithOutstandingBalance(0, 50);
+      const message =
+        clients.length > 0
+          ? `Found ${clients.length} client${clients.length === 1 ? '' : 's'} with outstanding balances.`
+          : "No clients currently have outstanding balances above $0.";
 
       const processingTime = Date.now() - startTime;
 
       return {
-        success: result.success,
-        message: result.message,
-        data: result.clients,
+        success: true,
+        message,
+        data: clients,
         agent: this.name,
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: ['queryOutstandingBalances'],
+          toolsUsed: ['list_clients_with_outstanding_balance'],
           confidence: 0.9
         }
       };
@@ -693,28 +720,177 @@ export class ClientsAgent extends BaseAgent {
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: ['queryOutstandingBalances'],
+          toolsUsed: ['list_clients_with_outstanding_balance'],
           confidence: 0
         }
       };
     }
   }
 
+  private aggregateClientRecords(records: FinancialRecord[]): ClientFinancialSummary[] {
+    const summaries = new Map<string, {
+      clientName: string;
+      clientId: string | null;
+      totalQuoted: number;
+      totalPaid: number;
+      transactions: Array<{
+        id: string;
+        type: string;
+        amount: number;
+        transactionDate: string | null;
+        paymentMethod: string | null;
+        serviceDescription: string | null;
+        notes: string | null;
+      }>;
+      latestTransactionDate: string | null;
+      primaryCaseNumber: string | null;
+    }>();
+
+    for (const record of records) {
+      const clientName = (record.client_name || "Unknown client").trim() || "Unknown client";
+      const summary =
+        summaries.get(clientName) ??
+        {
+          clientName,
+          clientId: record.client_id || null,
+          totalQuoted: 0,
+          totalPaid: 0,
+          transactions: [],
+          latestTransactionDate: null,
+          primaryCaseNumber: null,
+        };
+
+      const amount = Number(record.amount) || 0;
+      if (record.transaction_type === "quote") {
+        summary.totalQuoted += amount;
+      } else if (record.transaction_type === "payment" || record.transaction_type === "adjustment") {
+        summary.totalPaid += amount;
+      }
+
+      summary.transactions.push({
+        id: record.id,
+        type: record.transaction_type,
+        amount,
+        transactionDate: record.transaction_date,
+        paymentMethod: record.payment_method,
+        serviceDescription: record.service_description,
+        notes: record.notes,
+      });
+
+      summary.latestTransactionDate = this.pickLatestDate(
+        summary.latestTransactionDate,
+        record.transaction_date
+      );
+
+      if (!summary.primaryCaseNumber && record.case_number) {
+        summary.primaryCaseNumber = record.case_number;
+      }
+
+      summaries.set(clientName, summary);
+    }
+
+    return Array.from(summaries.values()).map((summary) => ({
+      id: summary.clientId,
+      name: summary.clientName,
+      totalQuoted: Number(summary.totalQuoted.toFixed(2)),
+      totalPaid: Number(summary.totalPaid.toFixed(2)),
+      outstandingBalance: Number((summary.totalQuoted - summary.totalPaid).toFixed(2)),
+      lastTransactionDate: summary.latestTransactionDate,
+      primaryCaseNumber: summary.primaryCaseNumber,
+      recentTransactions: summary.transactions.slice(0, 5),
+    }));
+  }
+
+  private formatClientProfile(
+    profile: ClientProfileView,
+    financialSummary?: ClientFinancialSummary
+  ) {
+    const alternativeContact1 = profile.contact_1
+      ? {
+          name: profile.contact_1,
+          relationship: profile.relationship_1 || "Not provided",
+          phone: profile.contact_1_phone || "Not provided",
+        }
+      : undefined;
+
+    const alternativeContact2 = profile.contact_2
+      ? {
+          name: profile.contact_2,
+          relationship: profile.relationship_2 || "Not provided",
+          phone: profile.contact_2_phone || "Not provided",
+        }
+      : undefined;
+
+    return {
+      id: profile.id,
+      name: profile.client_name,
+      clientType: profile.client_type || "Unspecified",
+      email: profile.email || "Not provided",
+      phone: profile.phone || "Not provided",
+      address: profile.address || "Not provided",
+      notes: profile.notes || "No notes on file",
+      county: profile.county || "Not provided",
+      courtDate: profile.court_date
+        ? new Date(profile.court_date).toLocaleDateString()
+        : "Not provided",
+      quoted: profile.quoted || "Not provided",
+      initialPayment: profile.initial_payment || "Not provided",
+      dueDateBalance: profile.due_date_balance
+        ? new Date(profile.due_date_balance).toLocaleDateString()
+        : "Not provided",
+      arrested: this.formatBoolean(profile.arrested),
+      currentlyIncarcerated: this.formatBoolean(profile.currently_incarcerated),
+      incarcerationLocation: profile.incarceration_location || "Not provided",
+      onProbation: this.formatBoolean(profile.on_probation),
+      onParole: this.formatBoolean(profile.on_parole),
+      caseType: profile.case_type || "Not provided",
+      childrenInvolved: this.formatBoolean(profile.children_involved),
+      alternativeContact1,
+      alternativeContact2,
+      financialSummary: financialSummary
+        ? {
+            totalQuoted: financialSummary.totalQuoted,
+            totalPaid: financialSummary.totalPaid,
+            outstandingBalance: financialSummary.outstandingBalance,
+            lastTransactionDate: financialSummary.lastTransactionDate,
+            recentTransactions: financialSummary.recentTransactions,
+          }
+        : undefined,
+    };
+  }
+
+  private formatBoolean(value: boolean | null | undefined) {
+    if (value === null || value === undefined) {
+      return "Not specified";
+    }
+    return value ? "Yes" : "No";
+  }
+
+  private pickLatestDate(current: string | null, candidate: string | null): string | null {
+    if (!candidate) {
+      return current;
+    }
+
+    if (!current) {
+      return candidate;
+    }
+
+    const currentDate = new Date(current);
+    const candidateDate = new Date(candidate);
+
+    return candidateDate > currentDate ? candidate : current;
+  }
+
   /**
    * Extract search parameters from a query string
    */
-  private extractSearchParameters(query: string): any {
-    const lowerQuery = query.toLowerCase();
+  private extractSearchParameters(query: string): { query: string | null; limit: number } {
+    const extracted = this.extractClientName(query);
+    const fallbackQuery = extracted || query.trim() || null;
 
     return {
-      query: this.extractClientName(query),
+      query: fallbackQuery,
       limit: 10,
-      filterByArrested: lowerQuery.includes('arrested') ? true : undefined,
-      filterByIncarcerated: lowerQuery.includes('incarcerated') || lowerQuery.includes('in jail') ? true : undefined,
-      filterByProbation: lowerQuery.includes('probation') ? true : undefined,
-      filterByParole: lowerQuery.includes('parole') ? true : undefined,
-      clientType: lowerQuery.includes('civil') ? 'civil' : lowerQuery.includes('criminal') ? 'criminal' : undefined,
-      fuzzyThreshold: 0.3
     };
   }
 

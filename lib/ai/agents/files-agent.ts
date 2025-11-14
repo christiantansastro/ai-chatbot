@@ -140,7 +140,7 @@ export class FilesAgent extends BaseAgent {
             category: this.category,
             metadata: {
               processingTime: Date.now() - startTime,
-              toolsUsed: ['queryClients'],
+              toolsUsed: ['get_client_by_name'],
               confidence: 0.9
             }
           };
@@ -174,7 +174,7 @@ export class FilesAgent extends BaseAgent {
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: fileDetails.validatedClientName ? ['fileStorage', 'queryClients'] : ['fileStorage'],
+          toolsUsed: fileDetails.validatedClientName ? ['fileStorage', 'get_client_by_name'] : ['fileStorage'],
           confidence: 0.9
         }
       };

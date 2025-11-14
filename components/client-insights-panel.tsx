@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/lib/types";
 import { toast } from "./toast";
 
-type Section = "overview" | "communications" | "financials" | "files";
+type Section = "overview" | "communications" | "financials" | "files" | "all";
 
 type ClientSummary = {
   id: string;
@@ -40,7 +40,15 @@ const SECTION_LABELS: Record<Section, string> = {
   communications: "Communication history",
   financials: "Financials",
   files: "Files",
+  all: "All data",
 };
+const SECTION_ORDER: Section[] = [
+  "overview",
+  "communications",
+  "financials",
+  "files",
+  "all",
+];
 
 const RECENTS_KEY = "client-insights:recents";
 
@@ -174,7 +182,8 @@ export function ClientInsightsPanel({
           clientId: selectedClient.id,
           clientName: selectedClient.name,
           section: selectedSection,
-          includeHistory: selectedSection === "financials",
+          includeHistory:
+            selectedSection === "financials" || selectedSection === "all",
         }),
       });
 
@@ -355,7 +364,7 @@ export function ClientInsightsPanel({
               What do you need?
             </p>
             <div className="grid grid-cols-2 gap-2">
-              {(Object.keys(SECTION_LABELS) as Section[]).map((section) => {
+              {SECTION_ORDER.map((section) => {
                 const isActive = selectedSection === section;
 
                 return (

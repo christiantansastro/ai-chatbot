@@ -1,5 +1,6 @@
 import { BaseAgent, AgentCategory, AgentResponse } from "./base-agent";
-import { queryOutstandingBalances } from "../tools/query-outstanding-balances";
+import { listClientsWithOutstandingBalanceTool } from "../tools/list-clients-with-outstanding-balance";
+import { listClientsWithOutstandingBalance } from "../data/financials";
 
 /**
  * Financials Agent - Handles all financial-related queries and operations
@@ -13,7 +14,7 @@ export class FinancialsAgent extends BaseAgent {
     );
 
     // Register financial tools
-    this.registerTool("queryOutstandingBalances", queryOutstandingBalances);
+    this.registerTool("list_clients_with_outstanding_balance", listClientsWithOutstandingBalanceTool);
   }
 
   /**
@@ -264,20 +265,23 @@ export class FinancialsAgent extends BaseAgent {
     const startTime = Date.now();
 
     try {
-      // Use the queryOutstandingBalances tool
-      const result = await (queryOutstandingBalances as any)({ limit: 50 });
+      const clients = await listClientsWithOutstandingBalance(0, 50);
+      const message =
+        clients.length > 0
+          ? `Found ${clients.length} client${clients.length === 1 ? '' : 's'} with outstanding balances.`
+          : "No outstanding balances found.";
 
       const processingTime = Date.now() - startTime;
 
       return {
-        success: result.success,
-        message: result.message,
-        data: result.clients,
+        success: true,
+        message,
+        data: clients,
         agent: this.name,
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: ['queryOutstandingBalances'],
+          toolsUsed: ['list_clients_with_outstanding_balance'],
           confidence: 0.9
         }
       };
@@ -290,7 +294,7 @@ export class FinancialsAgent extends BaseAgent {
         category: this.category,
         metadata: {
           processingTime,
-          toolsUsed: ['queryOutstandingBalances'],
+          toolsUsed: ['list_clients_with_outstanding_balance'],
           confidence: 0
         }
       };

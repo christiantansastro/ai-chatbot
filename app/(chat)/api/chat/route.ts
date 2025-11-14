@@ -17,12 +17,13 @@ import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import type { ChatModel } from "@/lib/ai/models";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { myProvider } from "@/lib/ai/providers";
-import { queryClients } from "@/lib/ai/tools/query-clients";
+import { runSupabaseSqlTool } from "@/lib/ai/tools/run-supabase-sql";
+import { getClientProfileTool } from "@/lib/ai/tools/get-client-profile";
 import { createClient } from "@/lib/ai/tools/create-client";
 import { updateClient } from "@/lib/ai/tools/update-client";
 import { deleteClient } from "@/lib/ai/tools/delete-client";
-import { queryFinancialBalance } from "@/lib/ai/tools/query-financial-balance";
-import { queryOutstandingBalances } from "@/lib/ai/tools/query-outstanding-balances";
+import { getClientByNameTool } from "@/lib/ai/tools/get-client-by-name";
+import { listClientsWithOutstandingBalanceTool } from "@/lib/ai/tools/list-clients-with-outstanding-balance";
 import { queryRecentPayments } from "@/lib/ai/tools/query-recent-payments";
 import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
 import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
@@ -215,7 +216,13 @@ export async function POST(request: Request) {
         });
 
         // Use multi-agent system to determine which tools should be available
-        let availableTools: any = {};
+        const readonlyTools = {
+          run_supabase_sql: runSupabaseSqlTool,
+          get_client_profile: getClientProfileTool,
+          get_client_by_name: getClientByNameTool,
+          list_clients_with_outstanding_balance: listClientsWithOutstandingBalanceTool,
+        };
+        let availableTools: Record<string, any> = {};
         let activeToolNames: string[] = [];
 
         if (userMessageText.trim()) {
@@ -230,19 +237,27 @@ export async function POST(request: Request) {
             switch (classification.category) {
               case 'clients':
                 availableTools = {
-                  queryClients,
+                  ...readonlyTools,
                   createClient,
                   updateClient,
                   deleteClient,
                   createClientReport: createClientReport({ session, dataStream }),
                 };
-                activeToolNames = ["queryClients", "createClient", "updateClient", "deleteClient", "createClientReport"];
+                activeToolNames = [
+                  "get_client_profile",
+                  "get_client_by_name",
+                  "list_clients_with_outstanding_balance",
+                  "run_supabase_sql",
+                  "createClient",
+                  "updateClient",
+                  "deleteClient",
+                  "createClientReport"
+                ];
                 break;
 
               case 'financials':
                 availableTools = {
-                  queryFinancialBalance,
-                  queryOutstandingBalances,
+                  ...readonlyTools,
                   queryRecentPayments,
                   addFinancialTransaction,
                   updateFinancialTransaction,
@@ -251,7 +266,8 @@ export async function POST(request: Request) {
                   createFinancialStatement: createFinancialStatement({ session, dataStream }),
                 };
                 activeToolNames = [
-                  "queryFinancialBalance", "queryOutstandingBalances", "queryRecentPayments", "addFinancialTransaction",
+                  "get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql",
+                  "queryRecentPayments", "addFinancialTransaction",
                   "updateFinancialTransaction", "deleteFinancialTransaction", "getFinancialHistory", "createFinancialStatement"
                 ];
                 break;
@@ -270,36 +286,38 @@ export async function POST(request: Request) {
               case 'files':
                 availableTools = {
                   fileStorage,
-                  queryClients, // For client validation in file operations
+                  get_client_profile: getClientProfileTool,
+                  get_client_by_name: getClientByNameTool, // For client validation in file operations
                 };
-                activeToolNames = ["fileStorage", "queryClients"];
+                activeToolNames = ["fileStorage", "get_client_profile", "get_client_by_name"];
                 break;
 
               default:
                 // For general queries, provide limited tools
                 availableTools = {
-                  queryClients,
+                  ...readonlyTools,
                   fileStorage,
                 };
-                activeToolNames = ["queryClients", "fileStorage"];
+                activeToolNames = ["get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql", "fileStorage"];
                 break;
             }
           } catch (error) {
             console.error('Error in multi-agent classification:', error);
             // Fallback to limited tools if classification fails
             availableTools = {
-              queryClients,
+              ...readonlyTools,
               fileStorage,
             };
-            activeToolNames = ["queryClients", "fileStorage"];
+            activeToolNames = ["get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql", "fileStorage"];
           }
         } else {
           // No text content, provide basic tools
           availableTools = {
-            queryClients,
+            get_client_profile: getClientProfileTool,
+            get_client_by_name: getClientByNameTool,
             fileStorage,
           };
-          activeToolNames = ["queryClients", "fileStorage"];
+          activeToolNames = ["fileStorage", "get_client_profile", "get_client_by_name"];
         }
 
         const result = streamText({
