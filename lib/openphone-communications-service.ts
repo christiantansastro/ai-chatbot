@@ -46,6 +46,13 @@ interface OpenPhoneConversation {
   participants?: CallParticipant[];
 }
 
+interface NormalizedOpenPhoneEvent {
+  eventType?: string;
+  payload?: any;
+  data?: any;
+  raw: any;
+}
+
 export interface CommunicationSyncOptions {
   startDate?: Date;
   endDate?: Date;
@@ -141,20 +148,110 @@ export class OpenPhoneCommunicationsSyncService {
   async handleWebhookEvent(event: any): Promise<void> {
     await this.ensureDatabaseReady();
 
-    const eventType: string | undefined = event?.type || event?.event;
-    const payload = event?.data || event;
+    const normalized = this.normalizeWebhookEvent(event);
+    const eventType = normalized.eventType;
 
     if (!eventType) {
       console.warn('OpenPhone webhook missing event type');
       return;
     }
 
-    if (eventType.includes('call')) {
-      await this.processCallRecord(payload as OpenPhoneCall);
-    } else if (eventType.includes('message') || eventType.includes('conversation')) {
-      await this.processConversationRecord(payload as OpenPhoneConversation);
+    const normalizedType = eventType.toLowerCase();
+
+    if (normalizedType.startsWith('call.summary')) {
+      await this.processCallSummaryEvent(normalized);
+      return;
+    }
+
+    if (normalizedType.includes('call')) {
+      if (!normalized.payload) {
+        console.warn('Call event missing payload', event);
+        return;
+      }
+      await this.processCallRecord(normalized.payload as OpenPhoneCall);
+    } else if (normalizedType.includes('message') || normalizedType.includes('conversation')) {
+      if (!normalized.payload) {
+        console.warn('Message event missing payload', event);
+        return;
+      }
+      await this.processConversationRecord(normalized.payload as OpenPhoneConversation);
     } else {
       console.log('Unhandled OpenPhone webhook event:', eventType);
+    }
+  }
+
+  private normalizeWebhookEvent(event: any): NormalizedOpenPhoneEvent {
+    if (!event) {
+      return { eventType: undefined, payload: undefined, data: undefined, raw: event };
+    }
+
+    const eventContainer =
+      event?.object && typeof event.object === 'object' && event.object?.object === 'event'
+        ? event.object
+        : event;
+
+    const eventType =
+      eventContainer?.type ||
+      eventContainer?.eventType ||
+      eventContainer?.event ||
+      event?.type ||
+      event?.event ||
+      (eventContainer?.object && typeof eventContainer.object === 'object'
+        ? (eventContainer.object as any).type
+        : undefined);
+
+    const data = eventContainer?.data ?? event?.data ?? eventContainer;
+    const payload =
+      typeof data === 'object' && data !== null && 'object' in data ? (data as any).object ?? data : data;
+
+    return {
+      eventType,
+      payload,
+      data,
+      raw: event,
+    };
+  }
+
+  private async processCallSummaryEvent(event: NormalizedOpenPhoneEvent): Promise<void> {
+    const summaryPayload = event.payload || {};
+    const callId: string | undefined = summaryPayload?.callId || summaryPayload?.call?.id;
+    if (!callId) {
+      console.warn('Call summary event missing callId');
+      return;
+    }
+
+    try {
+      const response = await this.openPhoneClient.getCall(callId);
+      const callRecord = (response?.data ?? response) as OpenPhoneCall | undefined;
+      if (!callRecord?.id) {
+        console.warn('Call summary event could not load call details for callId:', callId);
+        return;
+      }
+
+      const formattedSummary = this.formatCallSummaryPayload(summaryPayload);
+      const metadata: Record<string, any> = { ...(callRecord.metadata || {}) };
+
+      if (formattedSummary) {
+        callRecord.summary = formattedSummary;
+        metadata.callSummary = formattedSummary;
+        metadata.callSummarySections = {
+          summary: Array.isArray(summaryPayload?.summary) ? summaryPayload.summary : undefined,
+          nextSteps: Array.isArray(summaryPayload?.nextSteps) ? summaryPayload.nextSteps : undefined,
+        };
+      }
+
+      const deepLink = (event.data as any)?.deepLink;
+      if (typeof deepLink === 'string' && deepLink.trim().length > 0) {
+        metadata.deepLink = deepLink;
+      }
+
+      if (Object.keys(metadata).length > 0) {
+        callRecord.metadata = metadata;
+      }
+
+      await this.processCallRecord(callRecord);
+    } catch (error) {
+      console.error('Failed to process call summary event:', error);
     }
   }
 
@@ -449,6 +546,25 @@ export class OpenPhoneCommunicationsSyncService {
     return null;
   }
 
+  private formatCallSummaryPayload(payload: any): string | null {
+    if (!payload) {
+      return null;
+    }
+    const summaryLines = this.toStringArray(payload.summary);
+    const nextSteps = this.toStringArray(payload.nextSteps);
+
+    const sections: string[] = [];
+    if (summaryLines.length > 0) {
+      sections.push(`Summary:\n- ${summaryLines.join('\n- ')}`);
+    }
+    if (nextSteps.length > 0) {
+      sections.push(`Next Steps:\n- ${nextSteps.join('\n- ')}`);
+    }
+
+    const combined = sections.join('\n\n').trim();
+    return combined || null;
+  }
+
   private extractConversationMessage(conversation: any): string | null {
     const lastMessage = conversation?.lastMessage;
     if (!lastMessage) {
@@ -497,6 +613,15 @@ export class OpenPhoneCommunicationsSyncService {
       }
     }
     return null;
+  }
+
+  private toStringArray(values: any): string[] {
+    if (!Array.isArray(values)) {
+      return [];
+    }
+    return values
+      .map(entry => this.toCleanString(entry))
+      .filter((entry): entry is string => Boolean(entry));
   }
 
   private async enrichOpenPhoneContact(contact: {

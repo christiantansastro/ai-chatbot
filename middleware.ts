@@ -35,7 +35,10 @@ export async function middleware(request: NextRequest) {
   }
 
   // Allow OpenPhone sync API routes without authentication for system operations
-  if (pathname.startsWith("/api/openphone-sync")) {
+  if (
+    pathname.startsWith("/api/openphone-sync") ||
+    pathname.startsWith("/api/openphone-webhook")
+  ) {
     return NextResponse.next();
   }
 
@@ -69,7 +72,6 @@ export const config = {
   matcher: [
     "/",
     "/chat/:id",
-    "/api/:path*",
     "/login",
     "/register",
 
@@ -79,6 +81,6 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico, sitemap.xml, robots.txt (metadata files)
      */
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/openphone-sync|api/openphone-webhook).*)",
   ],
 };

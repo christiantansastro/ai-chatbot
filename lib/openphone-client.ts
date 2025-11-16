@@ -502,6 +502,16 @@ export class OpenPhoneAPIClient {
   }
 
   /**
+   * Retrieve a single call by ID
+   */
+  async getCall(callId: string): Promise<any> {
+    if (!callId) {
+      throw new Error('callId is required when fetching a call');
+    }
+    return this.makeRequest<{ data?: any }>(`/calls/${callId}`);
+  }
+
+  /**
    * List conversations with pagination
    */
   async listConversations(
