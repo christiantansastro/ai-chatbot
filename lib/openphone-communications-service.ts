@@ -5,7 +5,7 @@ import {
   getCommunicationDatabaseService,
   type CommunicationRecordInput,
 } from './communication-database-service';
-import { databaseFactory, databaseService } from './db/database-factory';
+import { databaseFactory, databaseService, DatabaseConfigLoader } from './db/database-factory';
 import type { Client } from './db/schema';
 import type { OpenPhoneContact } from './openphone-mapping';
 
@@ -79,15 +79,27 @@ export class OpenPhoneCommunicationsSyncService {
   private async ensureDatabaseReady(): Promise<void> {
     if (this.initialized) return;
 
-    await databaseService.healthCheck();
-    const adapter = databaseFactory.getAdapter();
-    if (adapter && (adapter.supabase || adapter.serviceSupabase)) {
-      this.clientDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
-      this.communicationDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
-      this.initialized = true;
-    } else {
+    let adapter: any;
+    try {
+      adapter = databaseFactory.getAdapter();
+    } catch {
+      try {
+        const config = DatabaseConfigLoader.loadFromEnvironment();
+        await databaseService.initialize(config);
+        adapter = databaseFactory.getAdapter();
+      } catch (error) {
+        console.error('Failed to initialize database adapter for communication sync:', error);
+        throw error instanceof Error ? error : new Error('Failed to initialize database adapter for communication sync');
+      }
+    }
+
+    if (!adapter || (!adapter.supabase && !adapter.serviceSupabase)) {
       throw new Error('Failed to initialize database adapter for communication sync');
     }
+
+    this.clientDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
+    this.communicationDbService.initialize(adapter.supabase, adapter.serviceSupabase || adapter.supabase);
+    this.initialized = true;
   }
 
   async syncCommunications(options: CommunicationSyncOptions = {}): Promise<CommunicationSyncResult> {
