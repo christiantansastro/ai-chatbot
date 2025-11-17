@@ -46,10 +46,26 @@ interface OpenPhoneConversation {
   participants?: CallParticipant[];
 }
 
+interface OpenPhoneMessage {
+  id: string;
+  object?: string;
+  conversationId?: string;
+  contactId?: string;
+  direction?: 'incoming' | 'outgoing';
+  body?: string;
+  from?: string;
+  to?: string;
+  createdAt?: string;
+  phoneNumberId?: string;
+  media?: Array<any>;
+  userId?: string;
+}
+
 interface NormalizedOpenPhoneEvent {
   eventType?: string;
   payload?: any;
   data?: any;
+  objectType?: string;
   raw: any;
 }
 
@@ -169,9 +185,19 @@ export class OpenPhoneCommunicationsSyncService {
     }
 
     const normalizedType = eventType.toLowerCase();
+    const payloadType = normalized.objectType?.toLowerCase();
 
     if (normalizedType.startsWith('call.summary')) {
       await this.processCallSummaryEvent(normalized);
+      return;
+    }
+
+    if (payloadType === 'message' || normalizedType.startsWith('message.')) {
+      if (!normalized.payload) {
+        console.warn('Message event missing payload', event);
+        return;
+      }
+      await this.processMessageRecord(normalized.payload as OpenPhoneMessage);
       return;
     }
 
@@ -215,11 +241,16 @@ export class OpenPhoneCommunicationsSyncService {
     const data = eventContainer?.data ?? event?.data ?? eventContainer;
     const payload =
       typeof data === 'object' && data !== null && 'object' in data ? (data as any).object ?? data : data;
+    const objectType =
+      typeof payload === 'object' && payload !== null
+        ? (payload as any).object || (payload as any).type || undefined
+        : undefined;
 
     return {
       eventType,
       payload,
       data,
+      objectType,
       raw: event,
     };
   }
@@ -430,6 +461,49 @@ export class OpenPhoneCommunicationsSyncService {
       source: 'Quo',
       openPhoneConversationId: conversation.id,
       openPhoneEventTimestamp: latestTimestamp,
+    };
+
+    const result = await this.communicationDbService.upsertCommunication(payload);
+    return { ...result, clientCreated: clientResult.created };
+  }
+
+  private async processMessageRecord(message: OpenPhoneMessage) {
+    if (!message?.id) return null;
+    const direction = (message.direction || 'incoming').toLowerCase();
+    const primaryPhone =
+      this.formatParticipantPhone(direction === 'incoming' ? message.from : message.to) ||
+      this.formatParticipantPhone(message.from) ||
+      this.formatParticipantPhone(message.to);
+
+    const clientResult = await this.resolveClient({
+      name: null,
+      phone: primaryPhone,
+      contactId: message.contactId || null,
+      email: null,
+    });
+
+    const communicationDate = this.toDateOnly(message.createdAt || new Date().toISOString());
+    const noteText =
+      this.toCleanString(message.body) ||
+      (Array.isArray(message.media) && message.media.length > 0
+        ? `Message included ${message.media.length} attachment${message.media.length === 1 ? '' : 's'}`
+        : direction === 'incoming'
+        ? `Incoming message from ${clientResult.client.client_name}`
+        : `Outgoing message to ${clientResult.client.client_name}`);
+
+    const payload: CommunicationRecordInput = {
+      clientId: clientResult.client.id,
+      clientName: clientResult.client.client_name,
+      communicationDate,
+      communicationType: 'sms',
+      subject:
+        direction === 'incoming'
+          ? `Message from ${clientResult.client.client_name}`
+          : `Message to ${clientResult.client.client_name}`,
+      notes: noteText,
+      source: 'Quo',
+      openPhoneConversationId: message.conversationId || null,
+      openPhoneEventTimestamp: message.createdAt || new Date().toISOString(),
     };
 
     const result = await this.communicationDbService.upsertCommunication(payload);
