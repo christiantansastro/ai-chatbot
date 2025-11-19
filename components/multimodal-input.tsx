@@ -25,6 +25,19 @@ import { myProvider } from "@/lib/ai/providers";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { cn } from "@/lib/utils";
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+
+  return btoa(binary);
+};
 import { FileStorageManager } from "@/lib/utils/file-storage-manager";
 import { EdgeCaseHandler } from "@/lib/utils/edge-case-handler";
 import { identifyClientsInText, getPrimaryClientReference } from "@/lib/utils/client-identification";
@@ -310,9 +323,21 @@ function PureMultimodalInput({
         console.log(`📁 CLIENT: Keeping ${tempFiles.length} temp files for client assignment`);
       }
 
+      
       // Prepare file context for AI agent
+      const pendingTempFilesPayload =
+        needsClientAssignment && tempFiles.length > 0
+          ? tempFiles.map((tempFile) => ({
+              tempId: tempFile.tempId,
+              filename: tempFile.filename,
+              contentType: tempFile.contentType,
+              size: tempFile.size,
+              fileBuffer: arrayBufferToBase64(tempFile.fileBuffer),
+            }))
+          : [];
+
       const hasStoredFiles = finalAttachments.length > 0 && !needsClientAssignment;
-      const hasTempFiles = tempFiles.length > 0;
+      const hasTempFiles = pendingTempFilesPayload.length > 0;
       
       let fileContextForAI = null;
       if (hasStoredFiles || hasTempFiles) {
@@ -324,18 +349,44 @@ function PureMultimodalInput({
           hasStoredFiles,
           hasTempFiles,
           storedFiles: finalAttachments,
-          tempFilesCount: tempFiles.length,
+          tempFilesCount: pendingTempFilesPayload.length,
           clientName: extractedClientName
         };
         
-        console.log(`📁 CLIENT: File context for AI:`, fileContextForAI);
+        console.log(`dY"? CLIENT: File context for AI:`, fileContextForAI);
       }
 
       // Send message to chat with file context stored in sessionStorage for the API to read
+
       if (fileContextForAI) {
         sessionStorage.setItem(`aiFileContext_${chatId}`, JSON.stringify(fileContextForAI));
-        console.log(`📁 CLIENT: Stored file context for API:`, fileContextForAI);
+        console.log(`dY"? CLIENT: Stored file context for API:`, fileContextForAI);
+
+        if (pendingTempFilesPayload.length > 0) {
+          try {
+            const response = await fetch("/api/chat/file-context", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                chatId,
+                clientName: fileContextForAI.clientName,
+                tempFiles: pendingTempFilesPayload,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error("Failed to sync file context:", response.status, errorText);
+            }
+          } catch (error) {
+            console.error("Failed to sync file context:", error);
+          }
+        }
       }
+
+
 
       // Send clean original message to chat (no visible context added)
       sendMessage({

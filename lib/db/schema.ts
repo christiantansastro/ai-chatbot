@@ -284,3 +284,35 @@ export interface ClientFileView {
   created_at: string | null;
   updated_at: string | null;
 }
+
+export interface ClientDataOverviewView {
+  client_id: string;
+  client_name: string;
+  client_type: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  county: string | null;
+  case_type: string | null;
+  court_date: string | null;
+  quoted: string | null;
+  initial_payment: string | null;
+  due_date_balance: string | null;
+  arrested: boolean | null;
+  currently_incarcerated: boolean | null;
+  on_probation: boolean | null;
+  on_parole: boolean | null;
+  created_at: string | null;
+  updated_at: string | null;
+  total_quoted: number;
+  total_paid: number;
+  outstanding_balance: number;
+  transaction_count: number;
+  latest_transaction_date: string | null;
+  total_communications: number | null;
+  communications_last_30_days: number | null;
+  last_communication_date: string | null;
+  last_communication_created_at: string | null;
+  total_files: number | null;
+  last_file_uploaded_at: string | null;
+}

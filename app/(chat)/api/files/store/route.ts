@@ -66,20 +66,23 @@ export async function POST(request: Request) {
     console.log('Storing file for user:', session.user.id, 'client:', clientName );
 
     // Validate client name if provided
-    let validatedClientName = clientName;
-    if (clientName) {
+    const requestedClientName = clientName?.trim();
+    let validatedClientName: string | null = requestedClientName || null;
+    let fileStatus: 'assigned' | 'temp_queue' = 'temp_queue';
+
+    if (requestedClientName) {
       try {
-        const validation = await validateClientForFileStorage(clientName);
+        const validation = await validateClientForFileStorage(requestedClientName);
 
         if (!validation.isValid) {
-          return NextResponse.json({
-            error: "Client validation failed",
-            details: validation.error
-          }, { status: 400 });
+          console.warn('Client validation failed:', validation.error);
+          validatedClientName = requestedClientName;
+          fileStatus = 'temp_queue';
+        } else {
+          validatedClientName = validation.clientName;
+          fileStatus = 'assigned';
+          console.log('Client validated successfully:', validatedClientName);
         }
-
-        validatedClientName = validation.clientName;
-        console.log('Client validated successfully:', validatedClientName);
       } catch (error) {
         console.error('Error validating client name:', error);
         return NextResponse.json({
@@ -90,6 +93,8 @@ export async function POST(request: Request) {
     }
     // If no client name provided, we'll store in temp queue
     // This allows files to be uploaded without immediate client association
+
+    const storedClientName = validatedClientName || requestedClientName || 'Unassigned';
 
     // Initialize Supabase client
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -128,7 +133,8 @@ export async function POST(request: Request) {
     // Create database record with validated client name
     const fileRecord = await createFileRecord({
       id: tempId,
-      clientName: validatedClientName || 'Unassigned', // Use validated name or default
+      clientName: storedClientName,
+      status: fileStatus,
       fileName: filename,
       fileType: contentType,
       fileSize: size,

@@ -7,6 +7,8 @@ const READ_ONLY_SOURCES = [
   "client_profiles",
   "client_communications",
   "client_files",
+  "client_data_overview",
+  "clients",
 ] as const;
 const LIMIT_REGEX = /\blimit\s+\d+/i;
 const MAX_LIMIT = 200;

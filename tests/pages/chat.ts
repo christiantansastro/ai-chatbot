@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import type { Page, Locator } from "@playwright/test";
 
 export class ChatPage {
@@ -100,18 +101,22 @@ export class ChatPage {
     }
   }
 
-  async getRecentUserMessage() {
+  async getRecentUserMessage(): Promise<ChatMessage> {
     const messageLocator = this.page.locator('[data-role="user"]').last();
     await messageLocator.waitFor();
 
     return new ChatMessage(this.page, messageLocator, "user");
   }
 
-  async getRecentAssistantMessage() {
+  async getRecentAssistantMessage(): Promise<ChatMessage> {
     const messageLocator = this.page.locator('[data-role="assistant"]').last();
     await messageLocator.waitFor();
 
     return new ChatMessage(this.page, messageLocator, "assistant");
+  }
+
+  async expectToastToContain(text: string) {
+    await expect(this.page.getByTestId("toast")).toContainText(text);
   }
 }
 
@@ -126,12 +131,26 @@ class ChatMessage {
     this.role = role;
   }
 
-  get content() {
-    return this.locator.getByTestId("message-content").textContent();
+  get element(): Locator {
+    return this.locator;
+  }
+
+  get content(): Promise<string> {
+    return this.locator.getByTestId("message-content").innerText();
   }
 
   get attachments() {
     return this.locator.getByTestId("message-attachments").getByRole("button");
+  }
+
+  get reasoning(): Promise<string | null> {
+    const reasoningLocator = this.locator.getByTestId("message-reasoning");
+    return reasoningLocator.isVisible().then((visible) => {
+      if (!visible) {
+        return null;
+      }
+      return reasoningLocator.innerText();
+    });
   }
 
   async edit(newText: string) {
@@ -148,5 +167,10 @@ class ChatMessage {
 
     const saveButton = editor.getByTestId("message-editor-save");
     await saveButton.click();
+  }
+
+  async toggleReasoningVisibility() {
+    const toggle = this.locator.getByTestId("message-reasoning-toggle");
+    await toggle.click();
   }
 }

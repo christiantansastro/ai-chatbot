@@ -20,6 +20,7 @@ export const myProvider = isTestEnvironment
       return customProvider({
         languageModels: {
           "chat-model": chatModel,
+          "chat-model-gpt5-mini": chatModel,
           "chat-model-reasoning": reasoningModel,
           "title-model": titleModel,
           "artifact-model": artifactModel,
@@ -31,6 +32,7 @@ export const myProvider = isTestEnvironment
       return customProvider({
         languageModels: {
           "chat-model": openai("gpt-4o-mini"),
+          "chat-model-gpt5-mini": openai("gpt-5-mini"),
           "chat-model-reasoning": wrapLanguageModel({
             model: openai("gpt-4o"),
             middleware: extractReasoningMiddleware({ tagName: "think" }),

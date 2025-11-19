@@ -3,15 +3,17 @@ import { BaseAgent, AgentCategory, AgentResponse } from "./base-agent";
 import { runSupabaseSqlTool } from "../tools/run-supabase-sql";
 import { getClientProfileTool } from "../tools/get-client-profile";
 import { getClientByNameTool } from "../tools/get-client-by-name";
-import { listClientsWithOutstandingBalanceTool } from "../tools/list-clients-with-outstanding-balance";
 import { createClientReport } from "../tools/create-client-report";
 import { updateClient } from "../tools/update-client";
+import { queryClientDataTool } from "../tools/query-client-data";
 import {
-  findClientByName,
-  listClientsWithOutstandingBalance,
-  type FinancialRecord,
-} from "../data/financials";
+  executeClientDataQuery,
+  type ClientDataQueryRequest,
+  type ClientDataQueryRow,
+} from "../data/client-data-query";
+import { findClientByName, type FinancialRecord } from "../data/financials";
 import { searchClientProfiles } from "../data/clients";
+import { runSupabaseSql } from "../data/db";
 
 type ClientFinancialSummary = {
   id: string | null;
@@ -48,6 +50,26 @@ interface ParsedClientUpdateFailure {
 
 type ParsedClientUpdate = ParsedClientUpdateSuccess | ParsedClientUpdateFailure;
 
+type ClientDataSelections = NonNullable<ClientDataQueryRequest["select"]>;
+type ClientDataFilters = NonNullable<ClientDataQueryRequest["filters"]>;
+type ClientDataAggregates = NonNullable<ClientDataQueryRequest["aggregates"]>;
+type ClientDataSorts = NonNullable<ClientDataQueryRequest["orderBy"]>;
+
+type AnalyticsStrategy = 'structured_query' | 'direct_client_type_counts';
+
+interface ClientTypeCountIntent {
+  includeCivil: boolean;
+  includeCriminal: boolean;
+}
+
+interface ClientAnalyticsPlan {
+  strategy: AnalyticsStrategy;
+  request: ClientDataQueryRequest;
+  countAlias: string;
+  groupKeys: string[];
+  outstandingAlias?: string;
+}
+
 /**
  * Clients Agent - Handles all client-related queries and operations
  */
@@ -61,9 +83,9 @@ export class ClientsAgent extends BaseAgent {
 
     // Register client-specific tools
     this.registerTool("run_supabase_sql", runSupabaseSqlTool);
+    this.registerTool("query_client_data", queryClientDataTool);
     this.registerTool("get_client_profile", getClientProfileTool);
     this.registerTool("get_client_by_name", getClientByNameTool);
-    this.registerTool("list_clients_with_outstanding_balance", listClientsWithOutstandingBalanceTool);
     this.registerTool("createClientReport", createClientReport);
     this.registerTool("updateClient", updateClient);
   }
@@ -145,8 +167,17 @@ export class ClientsAgent extends BaseAgent {
         return await this.handleClientReport(query, context);
       } else if (this.isUpdateIntent(lowerQuery)) {
         return await this.handleClientUpdate(query, context);
-      } else if (lowerQuery.includes('outstanding') || lowerQuery.includes('balance') || lowerQuery.includes('owed') || lowerQuery.includes('owing')) {
-        return await this.handleOutstandingBalances(query, context);
+      } else if (this.isGeneralClientListIntent(lowerQuery)) {
+        return await this.handleGeneralClientList(query, context);
+      }
+
+      const typeCountIntent = this.detectClientTypeCountIntent(lowerQuery);
+      if (typeCountIntent) {
+        return await this.handleClientTypeCount(query, typeCountIntent);
+      }
+
+      if (this.isAnalyticsIntent(lowerQuery)) {
+        return await this.handleClientAnalytics(query, context);
       } else {
         return await this.handleClientSearch(query, context);
       }
@@ -273,6 +304,510 @@ export class ClientsAgent extends BaseAgent {
           confidence: 0
         }
       };
+    }
+  }
+
+  private async handleGeneralClientList(query: string, _context?: any): Promise<AgentResponse> {
+    const startTime = Date.now();
+    const clientLimit = 30;
+
+    try {
+      const rows = await runSupabaseSql<{ id: string; client_name: string | null; client_type: string | null }>(
+        `
+          SELECT id, client_name, client_type
+          FROM client_profiles
+          WHERE client_name IS NOT NULL
+          ORDER BY client_name ASC
+        `,
+        clientLimit
+      );
+
+      if (!rows.length) {
+        return {
+          success: false,
+          message: "No clients were found in the directory.",
+          agent: this.name,
+          category: this.category,
+          metadata: {
+            processingTime: Date.now() - startTime,
+            toolsUsed: ['runSupabaseSql'],
+            confidence: 0.4,
+          },
+        };
+      }
+
+      const segments = rows.map((row, index) => {
+        const name = (row.client_name ?? "").trim() || "Unnamed client";
+        const typeLabel = row.client_type ? ` (${this.formatClientTypeLabel(row.client_type)})` : "";
+        return `${index + 1}. ${name}${typeLabel}`;
+      });
+
+      const header = `Listing ${rows.length} client${rows.length === 1 ? '' : 's'}${rows.length === clientLimit ? ` (showing the first ${clientLimit})` : ''}:`;
+
+      return {
+        success: true,
+        message: `${header}\n${segments.join('\n')}`,
+        data: {
+          clients: rows,
+          limit: clientLimit,
+        },
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          toolsUsed: ['runSupabaseSql'],
+          confidence: 0.8,
+        },
+      };
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      return {
+        success: false,
+        message: `Error listing clients: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime,
+          toolsUsed: ['runSupabaseSql'],
+          confidence: 0.2,
+        },
+      };
+    }
+  }
+
+  /**
+   * Handle aggregate or analytics-style queries
+   */
+  private async handleClientAnalytics(query: string, _context?: any): Promise<AgentResponse> {
+    const startTime = Date.now();
+
+    try {
+      const plan = this.buildAnalyticsPlan(query);
+      let rows: ClientDataQueryRow[] = [];
+      let sqlUsed = '';
+
+      if (plan.strategy === 'direct_client_type_counts') {
+        const directCounts = await this.fetchDirectClientTypeCounts(plan.countAlias);
+        if (directCounts && directCounts.rows.length) {
+          rows = directCounts.rows;
+          sqlUsed = directCounts.sql;
+        }
+      }
+
+      if (!rows.length) {
+        const result = await executeClientDataQuery(plan.request);
+        rows = result.rows;
+        sqlUsed = result.plan.sql;
+
+        if (!rows.length && this.shouldFallbackToClientTypeCounts(plan)) {
+          const fallback = await this.fetchClientTypeCountsFallback(plan.countAlias);
+          if (fallback.rows.length) {
+            rows = fallback.rows;
+            sqlUsed = fallback.sql;
+          } else if (plan.strategy !== 'direct_client_type_counts') {
+            const directCounts = await this.fetchDirectClientTypeCounts(plan.countAlias);
+            if (directCounts && directCounts.rows.length) {
+              rows = directCounts.rows;
+              sqlUsed = directCounts.sql;
+            }
+          }
+        }
+      }
+
+      const prefersBrief = this.prefersBriefAnalyticsResponse(query);
+      const message = this.formatAnalyticsMessage(rows, plan, prefersBrief);
+
+      const toolsUsed: string[] = [];
+      if (sqlUsed === 'supabase_js:client_type_counts') {
+        toolsUsed.push('clients_table_counts');
+      }
+      if (!toolsUsed.length) {
+        toolsUsed.push('query_client_data');
+      }
+
+      return {
+        success: true,
+        message,
+        data: {
+          rows,
+          sql: sqlUsed,
+          request: plan.request,
+        },
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          toolsUsed,
+          confidence: 0.9,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to run client analytics: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          toolsUsed: ['query_client_data'],
+          confidence: 0.2,
+        },
+      };
+    }
+  }
+
+  private isAnalyticsIntent(lowerQuery: string): boolean {
+    const countKeywords = ['how many', 'number of', 'count', 'total'];
+    const analyticsKeywords = ['breakdown', 'distribution', 'by county', 'by type', 'top', 'average', 'avg', 'sum'];
+    const mentionsClients = lowerQuery.includes('client');
+    const mentionsGrouping =
+      lowerQuery.includes('civil') ||
+      lowerQuery.includes('criminal') ||
+      lowerQuery.includes('county') ||
+      lowerQuery.includes('case type') ||
+      lowerQuery.includes('case-type');
+
+    const hasCountKeyword = countKeywords.some((keyword) => lowerQuery.includes(keyword));
+    const hasAnalyticsKeyword = analyticsKeywords.some((keyword) => lowerQuery.includes(keyword));
+
+    return (hasCountKeyword && (mentionsClients || mentionsGrouping)) || (hasAnalyticsKeyword && (mentionsClients || mentionsGrouping));
+  }
+
+  private isGeneralClientListIntent(lowerQuery: string): boolean {
+    if (!lowerQuery.includes('client')) {
+      return false;
+    }
+
+    const listPatterns = [
+      /\b(list|show|display|give me|provide|what|who)\b.*\bclients?\b/,
+      /\ball clients?\b/,
+      /\bclients?\b.*\blist\b/,
+    ];
+
+    if (!listPatterns.some((pattern) => pattern.test(lowerQuery))) {
+      return false;
+    }
+
+    const filterKeywords = [
+      'outstanding',
+      'balance',
+      'due',
+      'payment',
+      'county',
+      'civil',
+      'criminal',
+      'type',
+      'case',
+      'status',
+      'overdue',
+      'collection',
+      'owed',
+      'owing',
+      'report',
+      'profile',
+      'summary',
+      'analytics',
+      'analysis',
+      'breakdown',
+      'distribution',
+    ];
+
+    if (filterKeywords.some((keyword) => lowerQuery.includes(keyword))) {
+      return false;
+    }
+
+    return true;
+  }
+
+
+  private detectClientTypeCountIntent(lowerQuery: string): ClientTypeCountIntent | null {
+    const countKeywords = ['how many', 'number of', 'count', 'total'];
+    const triggersCount = countKeywords.some((keyword) => lowerQuery.includes(keyword));
+    const mentionsClients = lowerQuery.includes('client');
+    const mentionsCivil = lowerQuery.includes('civil');
+    const mentionsCriminal = lowerQuery.includes('criminal');
+    const mentionsClientType = lowerQuery.includes('client_type');
+
+    if (!(triggersCount && mentionsClients)) {
+      return null;
+    }
+
+    if (!mentionsCivil && !mentionsCriminal && !mentionsClientType) {
+      return null;
+    }
+
+    return {
+      includeCivil: mentionsCivil || !mentionsCriminal,
+      includeCriminal: mentionsCriminal || !mentionsCivil,
+    };
+  }
+
+  private async handleClientTypeCount(query: string, intent: ClientTypeCountIntent): Promise<AgentResponse> {
+    const startTime = Date.now();
+    const counts = await this.fetchDirectClientTypeCounts('client_count');
+
+    if (!counts || counts.rows.length === 0) {
+      return {
+        success: false,
+        message: 'No client records found.',
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          toolsUsed: ['clients_table_counts'],
+          confidence: 0.2,
+        },
+      };
+    }
+
+    const alias = 'client_count';
+    const parts: string[] = [];
+    let total = 0;
+
+    for (const row of counts.rows) {
+      const type = typeof row.client_type === 'string' ? row.client_type.toLowerCase() : '';
+      const value = this.ensureNumber(row[alias]);
+
+      if (type === 'civil' && intent.includeCivil) {
+        parts.push(`Civil: ${value}`);
+      } else if (type === 'criminal' && intent.includeCriminal) {
+        parts.push(`Criminal: ${value}`);
+      }
+
+      total += value;
+    }
+
+    if (parts.length === 0) {
+      return {
+        success: true,
+        message: 'No matching client records found.',
+        data: { rows: counts.rows, sql: counts.sql },
+        agent: this.name,
+        category: this.category,
+        metadata: {
+          processingTime: Date.now() - startTime,
+          toolsUsed: ['clients_table_counts'],
+          confidence: 0.5,
+        },
+      };
+    }
+
+    const message = `${parts.join(', ')} (Total: ${total})`;
+
+    return {
+      success: true,
+      message,
+      data: {
+        rows: counts.rows,
+        sql: counts.sql,
+        query,
+      },
+      agent: this.name,
+      category: this.category,
+      metadata: {
+        processingTime: Date.now() - startTime,
+        toolsUsed: ['clients_table_counts'],
+        confidence: 0.95,
+      },
+    };
+  }
+
+  private buildAnalyticsPlan(query: string): ClientAnalyticsPlan {
+    const lowerQuery = query.toLowerCase();
+    const select: ClientDataSelections = [];
+    const filters: ClientDataFilters = [];
+    const groupBy: string[] = [];
+    const orderBy: ClientDataSorts = [];
+    const aggregates: ClientDataAggregates = [];
+
+    const ensureSelectField = (field: string) => {
+      if (!select.some((entry) => (typeof entry === 'string' ? entry : entry.field) === field)) {
+        select.push(field);
+      }
+    };
+
+    const ensureGroupField = (field: string) => {
+      if (!groupBy.includes(field)) {
+        groupBy.push(field);
+        ensureSelectField(field);
+      }
+    };
+
+    const mentionsCivil = lowerQuery.includes('civil');
+    const mentionsCriminal = lowerQuery.includes('criminal');
+
+    if (mentionsCivil && mentionsCriminal) {
+      ensureGroupField('client_type');
+    } else if (mentionsCivil || mentionsCriminal) {
+      filters.push({
+        field: 'client_type',
+        operator: 'eq',
+        value: mentionsCivil ? 'civil' : 'criminal',
+      });
+    }
+
+    if (lowerQuery.includes('county')) {
+      ensureGroupField('county');
+    }
+
+    if (lowerQuery.includes('case type') || lowerQuery.includes('case-type') || lowerQuery.includes('case types')) {
+      ensureGroupField('case_type');
+    }
+
+    const outstandingThreshold = this.extractOutstandingBalanceFilter(query);
+    if (outstandingThreshold) {
+      filters.push({
+        field: 'outstanding_balance',
+        operator: outstandingThreshold.operator,
+        value: outstandingThreshold.value,
+      });
+    }
+
+    const hasGroupings = groupBy.length > 0;
+    const hasExplicitSelect = select.length > 0;
+    const countAlias = hasGroupings || hasExplicitSelect ? 'client_count' : 'total_clients';
+    aggregates.push({
+      func: 'count',
+      alias: countAlias,
+    });
+
+    let outstandingAlias: string | undefined;
+    if (lowerQuery.includes('outstanding')) {
+      outstandingAlias = hasGroupings ? 'group_outstanding_total' : 'total_outstanding';
+      aggregates.push({
+        func: 'sum',
+        field: 'outstanding_balance',
+        alias: outstandingAlias,
+      });
+    }
+
+    const ranking = this.extractRankingPreferences(query);
+    const normalizedRankingLimit = this.normalizeAnalyticsLimit(ranking?.limit);
+    const appliedLimit = normalizedRankingLimit ?? (hasGroupings ? 200 : 1);
+
+    if (ranking) {
+      orderBy.push({
+        field: outstandingAlias ?? countAlias,
+        direction: ranking.direction,
+      });
+    }
+
+    const request: ClientDataQueryRequest = {
+      source: 'client_data_overview',
+      select: select.length ? select : undefined,
+      aggregates,
+      filters: filters.length ? filters : undefined,
+      groupBy: groupBy.length ? groupBy : undefined,
+      orderBy: orderBy.length ? orderBy : undefined,
+      limit: appliedLimit,
+    };
+
+    const isSimpleClientTypeCount =
+      groupBy.length === 1 &&
+      groupBy[0] === 'client_type' &&
+      filters.length === 0 &&
+      orderBy.length === 0 &&
+      !outstandingAlias &&
+      aggregates.length === 1 &&
+      aggregates[0].func === 'count';
+
+    return {
+      strategy: isSimpleClientTypeCount ? 'direct_client_type_counts' : 'structured_query',
+      request,
+      countAlias,
+      groupKeys: groupBy,
+      outstandingAlias,
+    };
+  }
+
+  private prefersBriefAnalyticsResponse(query: string): boolean {
+    const lowerQuery = query.toLowerCase();
+    const briefTriggers = ['how many', 'number of', 'count', 'total'];
+    const detailTriggers = ['list', 'show me', 'detailed', 'breakdown', 'full list'];
+    const wantsBrief = briefTriggers.some((keyword) => lowerQuery.includes(keyword));
+    const wantsDetail = detailTriggers.some((keyword) => lowerQuery.includes(keyword));
+    return wantsBrief && !wantsDetail;
+  }
+
+  private formatAnalyticsMessage(rows: ClientDataQueryRow[], plan: ClientAnalyticsPlan, prefersBrief: boolean): string {
+    if (!rows.length) {
+      return 'No clients matched the requested filters.';
+    }
+
+    const countAlias = plan.countAlias;
+    const pickCount = (row: ClientDataQueryRow) => this.ensureNumber(row[countAlias]);
+    const formatList = (parts: string[]) => (prefersBrief ? parts.join(', ') : parts.join('; '));
+
+    if (plan.groupKeys.includes('client_type')) {
+      const parts = rows.map((row) => `${this.formatClientTypeLabel(row.client_type)}: ${pickCount(row)}`);
+      return prefersBrief ? parts.join(', ') : `Client counts by type — ${parts.join('; ')}.`;
+    }
+
+    if (plan.groupKeys.includes('county')) {
+      const preview = prefersBrief ? rows.slice(0, 3) : rows;
+      const parts = preview.map((row) => {
+        const label = row.county ? String(row.county) : 'Unspecified county';
+        let segment = `${label}: ${pickCount(row)}`;
+        if (!prefersBrief && plan.outstandingAlias) {
+          segment += ` (Outstanding $${this.formatCurrency(row[plan.outstandingAlias])})`;
+        }
+        return segment;
+      });
+      if (prefersBrief && rows.length > preview.length) {
+        parts.push('…');
+      }
+      return `Client counts by county — ${formatList(parts)}`;
+    }
+
+    const total = pickCount(rows[0]);
+    let message = prefersBrief
+      ? `${total} client${total === 1 ? '' : 's'}.`
+      : `Found ${total} client${total === 1 ? '' : 's'} matching the filters.`;
+
+    if (!prefersBrief && plan.outstandingAlias) {
+      message += ` Total outstanding balance: $${this.formatCurrency(rows[0]?.[plan.outstandingAlias])}.`;
+    }
+
+    return message;
+  }
+
+  private shouldFallbackToClientTypeCounts(plan: ClientAnalyticsPlan): boolean {
+    if (plan.strategy !== 'structured_query') {
+      return false;
+    }
+    const isClientTypeGrouping = plan.groupKeys.length === 1 && plan.groupKeys[0] === 'client_type';
+    const hasNoFilters = !plan.request.filters || plan.request.filters.length === 0;
+    const hasOnlyCountAggregate = !plan.outstandingAlias && plan.request.aggregates?.length === 1;
+    return isClientTypeGrouping && hasNoFilters && hasOnlyCountAggregate;
+  }
+
+  private async fetchClientTypeCountsFallback(
+    countAlias: string
+  ): Promise<{ rows: ClientDataQueryRow[]; sql: string }> {
+    const alias = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(countAlias) ? countAlias : 'client_count';
+    const sql = `SELECT client_type, COUNT(*) AS ${alias} FROM client_profiles GROUP BY client_type`;
+    const rows = await runSupabaseSql<ClientDataQueryRow>(sql, 10);
+    return { rows, sql };
+  }
+
+  private async fetchDirectClientTypeCounts(
+    countAlias: string
+  ): Promise<{ rows: ClientDataQueryRow[]; sql: string } | null> {
+    try {
+      const alias = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(countAlias) ? countAlias : 'client_count';
+      const sql = `
+        SELECT
+          LOWER(COALESCE(client_type, 'unknown')) AS client_type,
+          COUNT(*)::int AS ${alias}
+        FROM clients
+        GROUP BY LOWER(COALESCE(client_type, 'unknown'))
+      `;
+
+      const rows = await runSupabaseSql<ClientDataQueryRow>(sql, 10);
+      return { rows, sql };
+    } catch (error) {
+      console.error('Failed to fetch direct client counts:', error);
+      return null;
     }
   }
 
@@ -684,47 +1219,99 @@ export class ClientsAgent extends BaseAgent {
     return lower.charAt(0).toUpperCase() + lower.slice(1);
   }
 
-  /**
-   * Handle outstanding balances queries
-   */
-  private async handleOutstandingBalances(query: string, context?: any): Promise<AgentResponse> {
-    const startTime = Date.now();
+  private formatClientTypeLabel(value: unknown): string {
+    if (typeof value === 'string' && value.trim()) {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === 'civil' || normalized === 'criminal') {
+        return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+      }
+      return this.formatNamePart(value);
+    }
+    return 'Unspecified';
+  }
 
-    try {
-      const clients = await listClientsWithOutstandingBalance(0, 50);
-      const message =
-        clients.length > 0
-          ? `Found ${clients.length} client${clients.length === 1 ? '' : 's'} with outstanding balances.`
-          : "No clients currently have outstanding balances above $0.";
+  private ensureNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return 0;
+  }
 
-      const processingTime = Date.now() - startTime;
+  private formatCurrency(value: unknown): string {
+    return this.ensureNumber(value).toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }
 
+  private extractOutstandingBalanceFilter(
+    query: string
+  ): { operator: 'gt' | 'gte' | 'lt' | 'lte'; value: number } | null {
+    const lower = query.toLowerCase();
+    if (!lower.includes('outstanding')) {
+      return null;
+    }
+
+    const comparisons: Array<{ regex: RegExp; operator: 'gt' | 'gte' | 'lt' | 'lte' }> = [
+      { regex: /(?:at least|minimum of|no less than)\s*\$?\s*([\d,]+(?:\.\d+)?)/i, operator: 'gte' },
+      { regex: /(?:over|above|greater than|more than)\s*\$?\s*([\d,]+(?:\.\d+)?)/i, operator: 'gt' },
+      { regex: /(?:at most|maximum of|no more than)\s*\$?\s*([\d,]+(?:\.\d+)?)/i, operator: 'lte' },
+      { regex: /(?:under|below|less than)\s*\$?\s*([\d,]+(?:\.\d+)?)/i, operator: 'lt' },
+    ];
+
+    for (const comparison of comparisons) {
+      const match = query.match(comparison.regex);
+      if (match && match[1]) {
+        return {
+          operator: comparison.operator,
+          value: this.parseNumericAmount(match[1]),
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private parseNumericAmount(value: string): number {
+    const normalized = value.replace(/[, ]+/g, '');
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed)) {
+      return 0;
+    }
+    return parsed;
+  }
+
+  private normalizeAnalyticsLimit(value?: number | null): number | undefined {
+    if (!value || Number.isNaN(value)) {
+      return undefined;
+    }
+    return Math.max(1, Math.min(200, Math.floor(value)));
+  }
+
+  private extractRankingPreferences(query: string): { limit: number; direction: 'asc' | 'desc' } | null {
+    const topMatch = query.match(/\b(?:top|first|highest)\s+(\d+)\b/i);
+    if (topMatch && topMatch[1]) {
       return {
-        success: true,
-        message,
-        data: clients,
-        agent: this.name,
-        category: this.category,
-        metadata: {
-          processingTime,
-          toolsUsed: ['list_clients_with_outstanding_balance'],
-          confidence: 0.9
-        }
-      };
-    } catch (error) {
-      const processingTime = Date.now() - startTime;
-      return {
-        success: false,
-        message: `Error querying outstanding balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        agent: this.name,
-        category: this.category,
-        metadata: {
-          processingTime,
-          toolsUsed: ['list_clients_with_outstanding_balance'],
-          confidence: 0
-        }
+        limit: parseInt(topMatch[1], 10),
+        direction: 'desc',
       };
     }
+
+    const bottomMatch = query.match(/\b(?:bottom|lowest|least)\s+(\d+)\b/i);
+    if (bottomMatch && bottomMatch[1]) {
+      return {
+        limit: parseInt(bottomMatch[1], 10),
+        direction: 'asc',
+      };
+    }
+
+    return null;
   }
 
   private aggregateClientRecords(records: FinancialRecord[]): ClientFinancialSummary[] {

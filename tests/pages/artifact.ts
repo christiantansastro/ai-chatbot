@@ -1,4 +1,5 @@
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 export class ArtifactPage {
   private readonly page: Page;
@@ -37,14 +38,19 @@ export class ArtifactPage {
     await this.artifact.getByTestId("send-button").click();
   }
 
-  async getRecentAssistantMessage() {
+  async getRecentAssistantMessage(): Promise<{
+    element: Locator;
+    content: string | null;
+    reasoning: string | null;
+    toggleReasoningVisibility: () => Promise<void>;
+  }> {
     const messageElements = await this.artifact
       .getByTestId("message-assistant")
       .all();
     const lastMessageElement = messageElements.at(-1);
 
     if (!lastMessageElement) {
-      return null;
+      throw new Error("No assistant message found");
     }
 
     const content = await lastMessageElement
@@ -76,14 +82,19 @@ export class ArtifactPage {
     };
   }
 
-  async getRecentUserMessage() {
+  async getRecentUserMessage(): Promise<{
+    element: Locator;
+    content: string;
+    attachments: Locator[];
+    edit: (newMessage: string) => Promise<void>;
+  }> {
     const messageElements = await this.artifact
       .getByTestId("message-user")
       .all();
     const lastMessageElement = messageElements.at(-1);
 
     if (!lastMessageElement) {
-      return null;
+      throw new Error("No user message found");
     }
 
     const content = await lastMessageElement.innerText();

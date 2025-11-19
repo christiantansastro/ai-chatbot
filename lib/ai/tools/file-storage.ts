@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient } from '@supabase/supabase-js';
 import { createFileRecord } from "@/lib/db/queries";
 import { generateUUID } from "@/lib/utils";
+import { clearFileContext, getFileContext } from "@/lib/utils/file-context-store";
 
 export const fileStorage = tool({
   description: "COMPLETES the file storage process for uploaded files. This tool should be called when files have been uploaded and need to be permanently stored. It handles the entire storage pipeline and provides final confirmation. After successful completion, no further file storage actions are needed. DO NOT ask for files that have already been stored.",
@@ -105,14 +106,31 @@ export const fileStorage = tool({
         };
       }
 
-      let tempFiles: any[] = [];
 
-      // Handle different execution contexts
-      if (typeof window !== 'undefined' && chatId && !files) {
-        // Client-side: Get file context from the new sessionStorage location
+      let tempFiles: any[] = [];
+      let usedContext = false;
+
+      if (files && Array.isArray(files)) {
+        tempFiles = files;
+        console.log(`dY"? FILE STORAGE TOOL: Processing ${tempFiles.length} provided files:`, tempFiles.map(f => f.filename));
+      }
+
+      if (!tempFiles.length && !files && chatId) {
+        const storedContext = getFileContext(chatId);
+        if (storedContext?.tempFiles && storedContext.tempFiles.length > 0) {
+          tempFiles = storedContext.tempFiles;
+          usedContext = true;
+          if (!clientName && storedContext.clientName) {
+            clientName = storedContext.clientName;
+          }
+          console.log(`dY"? FILE STORAGE TOOL: Found ${tempFiles.length} pending file(s) via stored context for chat ${chatId}`);
+        }
+      }
+
+      if (!tempFiles.length && typeof window !== 'undefined' && chatId && !files) {
         const fileContextData = sessionStorage.getItem(`aiFileContext_${chatId}`);
         if (!fileContextData) {
-          console.log(`📁 FILE STORAGE TOOL: No file context found in sessionStorage for chat ${chatId}`);
+          console.log(`dY"? FILE STORAGE TOOL: No file context found in sessionStorage for chat ${chatId}`);
           return {
             success: false,
             message: 'No files to store. Please ensure you have uploaded a file and it is attached to your message.',
@@ -121,11 +139,9 @@ export const fileStorage = tool({
         }
 
         const parsedContext = JSON.parse(fileContextData);
-        console.log(`📁 FILE STORAGE TOOL: Found file context:`, parsedContext);
+        console.log(`dY"? FILE STORAGE TOOL: Found file context:`, parsedContext);
         
-        // If we have stored files context, use that for the response
         if (parsedContext.hasStoredFiles && parsedContext.storedFiles && parsedContext.storedFiles.length > 0) {
-          // Return the actual stored files information
           const fileList = parsedContext.storedFiles.map((file: any, index: number) => {
             const fileExtension = file.name.split('.').pop() || '';
             const fileType = file.contentType.includes('officedocument') ? 'document' :
@@ -153,26 +169,13 @@ export const fileStorage = tool({
           };
         }
         
-        // Check for temp files that still need processing
         const tempFilesData = sessionStorage.getItem(`tempFiles_${chatId}`);
         if (tempFilesData) {
           const parsedData = JSON.parse(tempFilesData);
           tempFiles = Array.isArray(parsedData) ? parsedData : [];
-          console.log(`📁 FILE STORAGE TOOL: Found ${tempFiles.length} temp files in sessionStorage:`, tempFiles.map(f => f.filename));
+          console.log(`dY"? FILE STORAGE TOOL: Found ${tempFiles.length} temp files in sessionStorage:`, tempFiles.map(f => f.filename));
         }
-      } else if (files && Array.isArray(files)) {
-        // Server-side: Use provided file data
-        tempFiles = files;
-        console.log(`📁 FILE STORAGE TOOL: Processing ${tempFiles.length} provided files:`, tempFiles.map(f => f.filename));
-      } else {
-        console.log(`📁 FILE STORAGE TOOL: No files provided for storage`);
-        return {
-          success: false,
-          message: 'No files to store. Please ensure you have uploaded a file and it is attached to your message.',
-          storedFiles: [],
-        };
       }
-
       if (tempFiles.length === 0) {
         return {
           success: false,
@@ -322,6 +325,10 @@ export const fileStorage = tool({
 
       const successCount = storedFiles.length;
       const totalCount = validFiles.length;
+
+      if (chatId && usedContext) {
+        clearFileContext(chatId);
+      }
 
       if (successCount === 0) {
         return {

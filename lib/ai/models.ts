@@ -1,4 +1,4 @@
-export const DEFAULT_CHAT_MODEL: string = "chat-model";
+export const DEFAULT_CHAT_MODEL: string = "chat-model-gpt5-mini";
 
 export type ChatModel = {
   id: string;
@@ -7,6 +7,12 @@ export type ChatModel = {
 };
 
 export const chatModels: ChatModel[] = [
+  {
+    id: "chat-model-gpt5-mini",
+    name: "OpenAI GPT-5 mini",
+    description:
+      "Improved reasoning and higher throughput with the latest GPT-5 architecture",
+  },
   {
     id: "chat-model",
     name: "OpenAI GPT-4.0 mini",
