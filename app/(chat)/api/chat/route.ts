@@ -574,20 +574,24 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const test = searchParams.get("test");
+    const test = searchParams.get("test");
 
-  if (test === "db") {
-    // Test database operations
-    const session = await auth();
+    if (test === "db") {
+      // Test database operations
+      const session = await auth();
 
-    if (!session?.user) {
-      return new ChatSDKError("unauthorized:chat").toResponse();
-    }
+      if (!session?.user) {
+        return new ChatSDKError("unauthorized:chat").toResponse();
+      }
 
-    const userId = session.user.id;
+      const userId = session.user.id;
 
-    try {
-      const result = await testDatabaseOperations(userId);
+      if (!userId) {
+        return new ChatSDKError("unauthorized:chat").toResponse();
+      }
+
+      try {
+        const result = await testDatabaseOperations(userId);
       return Response.json(result, { status: 200 });
     } catch (error) {
       console.error("Database test failed:", error);
