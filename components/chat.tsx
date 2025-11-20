@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useSearchParams } from "next/navigation";
@@ -92,7 +93,7 @@ export function Chat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
       fetch: fetchWithErrorHandlers,
-      prepareSendMessagesRequest(request) {
+      prepareSendMessagesRequest(request: any) {
         return {
           body: {
             id: request.id,
@@ -104,8 +105,8 @@ export function Chat({
         };
       },
     }),
-    onData: (dataPart) => {
-      setDataStream((ds) => (ds ? [...ds, dataPart] : []));
+    onData: (dataPart: any) => {
+      setDataStream((ds: any) => (ds ? [...ds, dataPart] : []));
       if (dataPart.type === "data-usage") {
         setUsage(dataPart.data);
       }
@@ -113,7 +114,7 @@ export function Chat({
     onFinish: () => {
       mutate(unstable_serialize(getChatHistoryPaginationKey));
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
       if (error instanceof ChatSDKError) {
         // Check if it's a credit card error
         if (
@@ -160,7 +161,7 @@ export function Chat({
 
   const handleInsightMessage = useCallback(
     (message: ChatMessage) => {
-      setMessages((prev) => [...prev, message]);
+      setMessages((prev: ChatMessage[]) => [...prev, message]);
     },
     [setMessages]
   );
@@ -188,7 +189,7 @@ export function Chat({
           chatId={id}
           isArtifactVisible={isArtifactVisible}
           isReadonly={isReadonly}
-          messages={messages}
+          messages={messages ?? []}
           regenerate={regenerate}
           selectedModelId={initialChatModel}
           setMessages={setMessages}
@@ -201,7 +202,7 @@ export function Chat({
               attachments={attachments}
               chatId={id}
               input={input}
-              messages={messages}
+              messages={messages ?? []}
               onOpenClientAssignment={() => setClientAssignmentOpen(true)}
               pendingClientFiles={pendingClientFiles}
               onModelChange={setCurrentModelId}
@@ -230,7 +231,7 @@ export function Chat({
         input={input}
         onOpenClientAssignment={() => setClientAssignmentOpen(true)}
         isReadonly={isReadonly}
-        messages={messages}
+        messages={messages ?? []}
         regenerate={regenerate}
         selectedModelId={currentModelId}
         selectedVisibilityType={visibilityType}
@@ -240,7 +241,6 @@ export function Chat({
         setInput={setInput}
         setMessages={setMessages}
         pendingClientFiles={pendingClientFiles}
-        setPendingClientFiles={setPendingClientFiles}
         storedClientAttachments={storedClientAttachments}
         setStoredClientAttachments={setStoredClientAttachments}
         status={status}
@@ -273,7 +273,7 @@ export function Chat({
             <AlertDialogTitle>Activate AI Gateway</AlertDialogTitle>
             <AlertDialogDescription>
               This application requires{" "}
-              {process.env.NODE_ENV === "production" ? "the owner" : "you"} to
+              {(globalThis as any).process?.env?.NODE_ENV === "production" ? "the owner" : "you"} to
               activate Vercel AI Gateway.
             </AlertDialogDescription>
           </AlertDialogHeader>

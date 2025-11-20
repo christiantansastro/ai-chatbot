@@ -145,7 +145,7 @@ export function ClientAssignmentPanel({
     setIsAssigning(true);
 
     try {
-      const storePromises = visibleFiles.map(async (tempFile) => {
+  const storePromises = visibleFiles.map(async (tempFile: PendingClientFile) => {
         const response = await fetch("/api/files/store", {
           method: "POST",
           headers: {
@@ -181,7 +181,7 @@ export function ClientAssignmentPanel({
       const storedFiles = await Promise.all(storePromises);
 
         setPendingClientFiles([]);
-      setStoredClientAttachments((current) => [...current, ...storedFiles]);
+  setStoredClientAttachments((current: Attachment[]) => [...current, ...storedFiles]);
       setAttachedClientName(selectedClient.name);
       onOpenChange(false);
 
@@ -211,7 +211,7 @@ export function ClientAssignmentPanel({
 
   const handleFileSelection = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || []);
+  const files: File[] = Array.from(event.target.files || []);
       setUploadError(null);
 
       if (files.length === 0) {
@@ -275,7 +275,7 @@ export function ClientAssignmentPanel({
 
       try {
         const uploadResponses = await Promise.all(
-          validFiles.map(async (file) => {
+          validFiles.map(async (file: File) => {
             const formData = new FormData();
             formData.append("file", file);
             formData.append("filename", file.name);
@@ -295,7 +295,7 @@ export function ClientAssignmentPanel({
         );
 
         const processedFiles = await Promise.all(
-          uploadResponses.map(async ({ file, payload }) => ({
+          uploadResponses.map(async ({ file, payload }: { file: File; payload: any }) => ({
             tempId: payload.tempId,
             filename: file.name,
             contentType: file.type,
@@ -304,7 +304,7 @@ export function ClientAssignmentPanel({
           }))
         );
 
-        setPendingClientFiles((current) => [...current, ...processedFiles]);
+  setPendingClientFiles((current: PendingClientFile[]) => [...current, ...processedFiles]);
         toast({
           type: "success",
           description: `${processedFiles.length} file${
@@ -326,8 +326,8 @@ export function ClientAssignmentPanel({
 
   const removePendingFile = useCallback(
     (tempId: string) => {
-      setPendingClientFiles((current) =>
-        current.filter((file) => file.tempId !== tempId)
+      setPendingClientFiles((current: PendingClientFile[]) =>
+        current.filter((file: PendingClientFile) => file.tempId !== tempId)
       );
     },
     [setPendingClientFiles]
@@ -384,7 +384,7 @@ export function ClientAssignmentPanel({
                   </p>
                 ) : (
                   <ul className="space-y-1">
-                    {visibleFiles.map((file) => (
+                    {visibleFiles.map((file: PendingClientFile) => (
                       <li
                         className="flex items-center justify-between gap-2"
                         key={file.tempId}
@@ -412,7 +412,7 @@ export function ClientAssignmentPanel({
                 className="pl-9"
                 placeholder="Search clients by name..."
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
               />
               {isLoading && (
                 <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
@@ -442,7 +442,7 @@ export function ClientAssignmentPanel({
                     : "Start typing to find a client."}
                 </p>
               ) : (
-                results.map((client) => {
+                results.map((client: ClientSearchResult) => {
                   const isSelected = selectedClient?.id === client.id;
                   return (
                     <button
