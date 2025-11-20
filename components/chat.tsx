@@ -26,6 +26,7 @@ import type { Attachment, ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
 import { fetcher, fetchWithErrorHandlers, generateUUID } from "@/lib/utils";
 import { Artifact } from "./artifact";
+import { ClientAssignmentPanel } from "./client-assignment-panel";
 import { ClientInsightsPanel } from "./client-insights-panel";
 import { useDataStream } from "./data-stream-provider";
 import { Messages } from "./messages";
@@ -33,6 +34,7 @@ import { MultimodalInput } from "./multimodal-input";
 import { getChatHistoryPaginationKey } from "./sidebar-history";
 import { toast } from "./toast";
 import type { VisibilityType } from "./visibility-selector";
+import type { PendingClientFile } from "@/lib/types/uploads";
 
 export function Chat({
   id,
@@ -65,6 +67,10 @@ export function Chat({
   const [currentModelId, setCurrentModelId] = useState(initialChatModel);
   const currentModelIdRef = useRef(currentModelId);
   const [isClientPanelOpen, setClientPanelOpen] = useState(false);
+  const [isClientAssignmentOpen, setClientAssignmentOpen] = useState(false);
+  const [pendingClientFiles, setPendingClientFiles] = useState<PendingClientFile[]>([]);
+  const [storedClientAttachments, setStoredClientAttachments] = useState<Attachment[]>([]);
+  const [attachedClientName, setAttachedClientName] = useState<string | null>(null);
 
   useEffect(() => {
     currentModelIdRef.current = currentModelId;
@@ -172,7 +178,9 @@ export function Chat({
         <ChatHeader
           chatId={id}
           isReadonly={isReadonly}
+          onOpenClientAssignment={() => setClientAssignmentOpen(true)}
           onOpenClientInsights={handleOpenClientPanel}
+          pendingClientFileCount={pendingClientFiles.length}
           selectedVisibilityType={initialVisibilityType}
         />
 
@@ -194,13 +202,19 @@ export function Chat({
               chatId={id}
               input={input}
               messages={messages}
+              onOpenClientAssignment={() => setClientAssignmentOpen(true)}
+              pendingClientFiles={pendingClientFiles}
               onModelChange={setCurrentModelId}
               selectedModelId={currentModelId}
               selectedVisibilityType={visibilityType}
               sendMessage={sendMessage}
               setAttachments={setAttachments}
+              setAttachedClientName={setAttachedClientName}
               setInput={setInput}
               setMessages={setMessages}
+              setStoredClientAttachments={setStoredClientAttachments}
+              storedClientAttachments={storedClientAttachments}
+              attachedClientName={attachedClientName}
               status={status}
               stop={stop}
               usage={usage}
@@ -211,8 +225,10 @@ export function Chat({
 
       <Artifact
         attachments={attachments}
+        attachedClientName={attachedClientName}
         chatId={id}
         input={input}
+        onOpenClientAssignment={() => setClientAssignmentOpen(true)}
         isReadonly={isReadonly}
         messages={messages}
         regenerate={regenerate}
@@ -220,8 +236,13 @@ export function Chat({
         selectedVisibilityType={visibilityType}
         sendMessage={sendMessage}
         setAttachments={setAttachments}
+        setAttachedClientName={setAttachedClientName}
         setInput={setInput}
         setMessages={setMessages}
+        pendingClientFiles={pendingClientFiles}
+        setPendingClientFiles={setPendingClientFiles}
+        storedClientAttachments={storedClientAttachments}
+        setStoredClientAttachments={setStoredClientAttachments}
         status={status}
         stop={stop}
       />
@@ -232,6 +253,15 @@ export function Chat({
         onMessageCreated={handleInsightMessage}
         onOpenChange={handleClientPanelChange}
         open={isClientPanelOpen}
+      />
+
+      <ClientAssignmentPanel
+        onOpenChange={setClientAssignmentOpen}
+        open={isClientAssignmentOpen}
+        pendingFiles={pendingClientFiles}
+        setAttachedClientName={setAttachedClientName}
+        setPendingFiles={setPendingClientFiles}
+        setStoredClientAttachments={setStoredClientAttachments}
       />
 
       <AlertDialog

@@ -21,6 +21,7 @@ import { clientReportArtifact } from "@/artifacts/client-report/client";
 import { useArtifact } from "@/hooks/use-artifact";
 import type { Document } from "@/lib/db/schema";
 import type { Attachment, ChatMessage } from "@/lib/types";
+import type { PendingClientFile } from "@/lib/types/uploads";
 import { fetcher } from "@/lib/utils";
 import { ArtifactActions } from "./artifact-actions";
 import { ArtifactCloseButton } from "./artifact-close-button";
@@ -71,6 +72,12 @@ function PureArtifact({
   isReadonly,
   selectedVisibilityType,
   selectedModelId,
+  pendingClientFiles,
+  storedClientAttachments,
+  setStoredClientAttachments,
+  attachedClientName,
+  setAttachedClientName,
+  onOpenClientAssignment,
 }: {
   chatId: string;
   input: string;
@@ -86,6 +93,12 @@ function PureArtifact({
   isReadonly: boolean;
   selectedVisibilityType: VisibilityType;
   selectedModelId: string;
+  pendingClientFiles: PendingClientFile[];
+  storedClientAttachments: Attachment[];
+  setStoredClientAttachments: Dispatch<SetStateAction<Attachment[]>>;
+  attachedClientName: string | null;
+  setAttachedClientName: Dispatch<SetStateAction<string | null>>;
+  onOpenClientAssignment: () => void;
 }) {
   const { artifact, setArtifact, metadata, setMetadata } = useArtifact();
 
@@ -369,8 +382,14 @@ function PureArtifact({
                     selectedVisibilityType={selectedVisibilityType}
                     sendMessage={sendMessage}
                     setAttachments={setAttachments}
+                    setAttachedClientName={setAttachedClientName}
                     setInput={setInput}
                     setMessages={setMessages}
+                    pendingClientFiles={pendingClientFiles}
+                    storedClientAttachments={storedClientAttachments}
+                    setStoredClientAttachments={setStoredClientAttachments}
+                    attachedClientName={attachedClientName}
+                    onOpenClientAssignment={onOpenClientAssignment}
                     status={status}
                     stop={stop}
                   />
@@ -541,6 +560,18 @@ export const Artifact = memo(PureArtifact, (prevProps, nextProps) => {
     return false;
   }
   if (prevProps.input !== nextProps.input) {
+    return false;
+  }
+  if (!equal(prevProps.attachments, nextProps.attachments)) {
+    return false;
+  }
+  if (prevProps.pendingClientFiles !== nextProps.pendingClientFiles) {
+    return false;
+  }
+  if (!equal(prevProps.storedClientAttachments, nextProps.storedClientAttachments)) {
+    return false;
+  }
+  if (prevProps.attachedClientName !== nextProps.attachedClientName) {
     return false;
   }
   if (!equal(prevProps.messages, nextProps.messages)) {

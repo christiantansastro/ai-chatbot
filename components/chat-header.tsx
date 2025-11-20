@@ -6,7 +6,7 @@ import { useWindowSize } from "usehooks-ts";
 import { SearchIcon } from "lucide-react";
 import { SidebarToggle } from "@/components/sidebar-toggle";
 import { Button } from "@/components/ui/button";
-import { PlusIcon, UserIcon } from "./icons";
+import { PaperclipIcon, PlusIcon, UserIcon } from "./icons";
 import { ClientIntakeModal } from "./client-intake-modal";
 import { useSidebar } from "./ui/sidebar";
 import { VisibilitySelector, type VisibilityType } from "./visibility-selector";
@@ -16,11 +16,15 @@ function PureChatHeader({
   selectedVisibilityType,
   isReadonly,
   onOpenClientInsights,
+  onOpenClientAssignment,
+  pendingClientFileCount = 0,
 }: {
   chatId: string;
   selectedVisibilityType: VisibilityType;
   isReadonly: boolean;
   onOpenClientInsights?: () => void;
+  onOpenClientAssignment?: () => void;
+  pendingClientFileCount?: number;
 }) {
   const router = useRouter();
   const { open } = useSidebar();
@@ -68,6 +72,23 @@ function PureChatHeader({
         <span className="md:sr-only">Search clients</span>
       </Button>
 
+      <Button
+        className="order-5 h-8 px-2 md:order-5 md:h-fit md:px-2"
+        onClick={onOpenClientAssignment}
+        type="button"
+        variant="outline"
+      >
+        <span className="relative inline-flex items-center gap-1">
+          <PaperclipIcon className="size-3.5" />
+          <span className="text-xs font-medium">Assign files</span>
+          {pendingClientFileCount > 0 && (
+            <span className="rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+              {pendingClientFileCount}
+            </span>
+          )}
+        </span>
+      </Button>
+
       {!isReadonly && (
         <VisibilitySelector
           chatId={chatId}
@@ -84,6 +105,8 @@ export const ChatHeader = memo(PureChatHeader, (prevProps, nextProps) => {
     prevProps.chatId === nextProps.chatId &&
     prevProps.selectedVisibilityType === nextProps.selectedVisibilityType &&
     prevProps.isReadonly === nextProps.isReadonly &&
-    prevProps.onOpenClientInsights === nextProps.onOpenClientInsights
+    prevProps.onOpenClientInsights === nextProps.onOpenClientInsights &&
+    prevProps.onOpenClientAssignment === nextProps.onOpenClientAssignment &&
+    prevProps.pendingClientFileCount === nextProps.pendingClientFileCount
   );
 });

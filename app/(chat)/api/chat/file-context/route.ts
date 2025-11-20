@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     }
 
     setFileContext(parsed.data.chatId, {
-      clientName: parsed.data.clientName,
+      clientName: parsed.data.clientName ?? undefined,
       tempFiles: parsed.data.tempFiles,
     });
 
