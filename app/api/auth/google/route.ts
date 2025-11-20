@@ -1,7 +1,7 @@
-import { googleOAuth } from "@/lib/google/auth-oauth";
 import { NextResponse } from "next/server";
+import { googleOAuth } from "@/lib/google/auth-oauth";
 
-export async function GET() {
+export function GET() {
   try {
     const authUrl = googleOAuth.getAuthUrl();
     return NextResponse.redirect(authUrl);

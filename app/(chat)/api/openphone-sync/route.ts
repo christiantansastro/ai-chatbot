@@ -10,10 +10,10 @@
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getSyncService } from "../../../../lib/openphone-sync-service";
-import { getSyncScheduler } from "../../../../lib/openphone-scheduler";
 import { databaseService } from "../../../../lib/db/database-factory";
 import { getCommunicationsSyncService } from "../../../../lib/openphone-communications-service";
+import { getSyncScheduler } from "../../../../lib/openphone-scheduler";
+import { getSyncService } from "../../../../lib/openphone-sync-service";
 
 // Ensure database is initialized before handling requests
 let dbInitialized = false;

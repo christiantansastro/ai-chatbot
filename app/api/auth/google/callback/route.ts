@@ -1,5 +1,5 @@
-import { googleOAuth } from "@/lib/google/auth-oauth";
 import { NextResponse } from "next/server";
+import { googleOAuth } from "@/lib/google/auth-oauth";
 
 export async function GET(request: Request) {
   try {

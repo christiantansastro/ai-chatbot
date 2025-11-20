@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { getCommunicationsSyncService } from "@/lib/openphone-communications-service";
 
 type CanonicalBodyResult = {
