@@ -79,7 +79,8 @@ export async function POST(request: Request) {
           validatedClientName = requestedClientName;
           fileStatus = 'temp_queue';
         } else {
-          validatedClientName = validation.clientName;
+          const resolvedClientName = validation.clientName ?? requestedClientName;
+          validatedClientName = resolvedClientName ?? null;
           fileStatus = 'assigned';
           console.log('Client validated successfully:', validatedClientName);
         }
