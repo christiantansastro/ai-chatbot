@@ -1,23 +1,28 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { NextRequest, NextResponse } from 'next/server';
-import { getCommunicationsSyncService } from '@/lib/openphone-communications-service';
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { getCommunicationsSyncService } from "@/lib/openphone-communications-service";
 
-interface CanonicalBodyResult {
+type CanonicalBodyResult = {
   canonicalBody: string;
   parsedBody: any | null;
   isJson: boolean;
-}
+};
 
-interface SignatureEntry {
+type SignatureEntry = {
   scheme?: string;
   version?: string;
   timestamp?: string;
   signature?: string;
-}
+};
+
+const SHA256_REGEX = /sha256=(.+)/i;
+const VERSIONED_SIGNATURE_REGEX = /v\d=([A-Za-z0-9+/=]+)/;
+const BASE64_REGEX = /^[A-Za-z0-9+/=]+$/;
 
 function canonicalizeRequestBody(rawBody: string): CanonicalBodyResult {
   if (!rawBody) {
-    return { canonicalBody: '', parsedBody: null, isJson: false };
+    return { canonicalBody: "", parsedBody: null, isJson: false };
   }
   try {
     const parsedBody = JSON.parse(rawBody);
@@ -33,10 +38,10 @@ function canonicalizeRequestBody(rawBody: string): CanonicalBodyResult {
 
 function collectSignatureHeaderValues(request: NextRequest): string[] {
   const headerNames = [
-    'openphone-signature',
-    'x-openphone-signature',
-    'x-openphone-signature-sha256',
-    'x-quo-signature',
+    "openphone-signature",
+    "x-openphone-signature",
+    "x-openphone-signature-sha256",
+    "x-quo-signature",
   ];
   const values: string[] = [];
   for (const name of headerNames) {
@@ -49,8 +54,10 @@ function collectSignatureHeaderValues(request: NextRequest): string[] {
 }
 
 function stripWrappingQuotes(value?: string | null): string | undefined {
-  if (!value) return undefined;
-  return value.replace(/^['"]+|['"]+$/g, '').trim();
+  if (!value) {
+    return;
+  }
+  return value.replace(/^['"]+|['"]+$/g, "").trim();
 }
 
 function parseSignatureHeader(value: string): SignatureEntry[] {
@@ -60,13 +67,13 @@ function parseSignatureHeader(value: string): SignatureEntry[] {
   }
 
   const fragments = value
-    .split(',')
-    .map(fragment => fragment.trim())
+    .split(",")
+    .map((fragment) => fragment.trim())
     .filter(Boolean);
 
   for (const fragment of fragments) {
-    if (fragment.includes(';')) {
-      const [scheme, version, timestamp, signature] = fragment.split(';');
+    if (fragment.includes(";")) {
+      const [scheme, version, timestamp, signature] = fragment.split(";");
       entries.push({
         scheme: stripWrappingQuotes(scheme),
         version: stripWrappingQuotes(version),
@@ -76,13 +83,13 @@ function parseSignatureHeader(value: string): SignatureEntry[] {
       continue;
     }
 
-    const shaMatch = fragment.match(/sha256=(.+)/i);
+    const shaMatch = fragment.match(SHA256_REGEX);
     if (shaMatch?.[1]) {
       entries.push({ signature: stripWrappingQuotes(shaMatch[1]) });
       continue;
     }
 
-    const versionedMatch = fragment.match(/v\d=([A-Za-z0-9+/=]+)/);
+    const versionedMatch = fragment.match(VERSIONED_SIGNATURE_REGEX);
     if (versionedMatch?.[1]) {
       entries.push({ signature: stripWrappingQuotes(versionedMatch[1]) });
       continue;
@@ -118,28 +125,32 @@ function extractBearerToken(headerValue: string | null): string | null {
   if (!trimmed) {
     return null;
   }
-  if (trimmed.toLowerCase().startsWith('bearer ')) {
+  if (trimmed.toLowerCase().startsWith("bearer ")) {
     return trimmed.slice(7).trim();
   }
   return trimmed;
 }
 
 function isLikelyBase64(value: string): boolean {
-  if (!value) return false;
-  const normalized = value.replace(/\s+/g, '');
-  return /^[A-Za-z0-9+/=]+$/.test(normalized) && normalized.length % 4 === 0;
+  if (!value) {
+    return false;
+  }
+  const normalized = value.replace(/\s+/g, "");
+  return BASE64_REGEX.test(normalized) && normalized.length % 4 === 0;
 }
 
 function buildSigningKeyCandidates(secret: string): Buffer[] {
   const trimmed = secret.trim();
-  if (!trimmed) return [];
+  if (!trimmed) {
+    return [];
+  }
 
-  const normalized = trimmed.replace(/\s+/g, '');
-  const candidates: Buffer[] = [Buffer.from(trimmed, 'utf8')];
+  const normalized = trimmed.replace(/\s+/g, "");
+  const candidates: Buffer[] = [Buffer.from(trimmed, "utf8")];
 
   if (isLikelyBase64(normalized)) {
     try {
-      const decoded = Buffer.from(normalized, 'base64');
+      const decoded = Buffer.from(normalized, "base64");
       if (decoded.byteLength > 0) {
         candidates.unshift(decoded);
       }
@@ -151,15 +162,14 @@ function buildSigningKeyCandidates(secret: string): Buffer[] {
   return candidates;
 }
 
-function computeHmacDigests(
-  data: string,
-  signingKeys: Buffer[]
-): string[] {
+function computeHmacDigests(data: string, signingKeys: Buffer[]): string[] {
   if (!data || signingKeys.length === 0) {
     return [];
   }
-  const payloadBuffer = Buffer.from(data, 'utf8');
-  return signingKeys.map(key => createHmac('sha256', key).update(payloadBuffer).digest('base64'));
+  const payloadBuffer = Buffer.from(data, "utf8");
+  return signingKeys.map((key) =>
+    createHmac("sha256", key).update(payloadBuffer).digest("base64")
+  );
 }
 
 function verifySignature(request: NextRequest, canonicalBody: string): boolean {
@@ -169,29 +179,31 @@ function verifySignature(request: NextRequest, canonicalBody: string): boolean {
   }
 
   const headerValues = collectSignatureHeaderValues(request);
-  const bearerToken = extractBearerToken(request.headers.get('authorization'));
+  const bearerToken = extractBearerToken(request.headers.get("authorization"));
 
   if (bearerToken && constantTimeEquals(bearerToken, secret)) {
     return true;
   }
 
   if (headerValues.length === 0) {
-    console.warn('OpenPhone webhook missing signature headers');
+    console.warn("OpenPhone webhook missing signature headers");
     return false;
   }
 
-  if (headerValues.some(value => constantTimeEquals(value, secret))) {
+  if (headerValues.some((value) => constantTimeEquals(value, secret))) {
     return true;
   }
 
   const signingKeys = buildSigningKeyCandidates(secret);
   if (signingKeys.length === 0) {
-    console.warn('Unable to derive signing key for OpenPhone webhook');
+    console.warn("Unable to derive signing key for OpenPhone webhook");
     return false;
   }
 
-  const canonicalPayload = canonicalBody ?? '';
-  const bodyOnlyDigests = canonicalPayload ? computeHmacDigests(canonicalPayload, signingKeys) : [];
+  const canonicalPayload = canonicalBody ?? "";
+  const bodyOnlyDigests = canonicalPayload
+    ? computeHmacDigests(canonicalPayload, signingKeys)
+    : [];
 
   for (const headerValue of headerValues) {
     const entries = parseSignatureHeader(headerValue);
@@ -204,13 +216,21 @@ function verifySignature(request: NextRequest, canonicalBody: string): boolean {
       if (entry.timestamp) {
         const signedData = `${entry.timestamp}.${canonicalPayload}`;
         const expectedDigests = computeHmacDigests(signedData, signingKeys);
-        if (expectedDigests.some(digest => constantTimeEquals(providedSignature, digest))) {
+        if (
+          expectedDigests.some((digest) =>
+            constantTimeEquals(providedSignature, digest)
+          )
+        ) {
           return true;
         }
       }
 
       // Fallback to direct body hash for legacy headers without timestamp.
-      if (bodyOnlyDigests.some(digest => constantTimeEquals(providedSignature, digest))) {
+      if (
+        bodyOnlyDigests.some((digest) =>
+          constantTimeEquals(providedSignature, digest)
+        )
+      ) {
         return true;
       }
     }
@@ -221,14 +241,18 @@ function verifySignature(request: NextRequest, canonicalBody: string): boolean {
 
 export async function POST(request: NextRequest) {
   const rawBody = await request.text();
-  const { canonicalBody, parsedBody, isJson } = canonicalizeRequestBody(rawBody);
+  const { canonicalBody, parsedBody, isJson } =
+    canonicalizeRequestBody(rawBody);
 
   if (!verifySignature(request, canonicalBody)) {
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
-  if (!isJson || typeof parsedBody !== 'object' || parsedBody === null) {
-    return NextResponse.json({ error: 'Invalid webhook payload' }, { status: 400 });
+  if (!isJson || typeof parsedBody !== "object" || parsedBody === null) {
+    return NextResponse.json(
+      { error: "Invalid webhook payload" },
+      { status: 400 }
+    );
   }
 
   try {
@@ -236,9 +260,9 @@ export async function POST(request: NextRequest) {
     await syncService.handleWebhookEvent(parsedBody);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('OpenPhone webhook error:', error);
+    console.error("OpenPhone webhook error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }

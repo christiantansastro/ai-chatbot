@@ -25,7 +25,7 @@ type ClientAssignmentPanelProps = {
   onOpenChange: (open: boolean) => void;
   open: boolean;
   pendingFiles: PendingClientFile[];
-  setPendingFiles: Dispatch<SetStateAction<PendingClientFile[]>>;
+  setPendingClientFiles: Dispatch<SetStateAction<PendingClientFile[]>>;
   setStoredClientAttachments: Dispatch<SetStateAction<Attachment[]>>;
   setAttachedClientName: Dispatch<SetStateAction<string | null>>;
 };
@@ -47,7 +47,7 @@ export function ClientAssignmentPanel({
   onOpenChange,
   open,
   pendingFiles,
-  setPendingFiles,
+  setPendingClientFiles,
   setStoredClientAttachments,
   setAttachedClientName,
 }: ClientAssignmentPanelProps) {
@@ -180,7 +180,7 @@ export function ClientAssignmentPanel({
 
       const storedFiles = await Promise.all(storePromises);
 
-      setPendingFiles([]);
+        setPendingClientFiles([]);
       setStoredClientAttachments((current) => [...current, ...storedFiles]);
       setAttachedClientName(selectedClient.name);
       onOpenChange(false);
@@ -304,7 +304,7 @@ export function ClientAssignmentPanel({
           }))
         );
 
-        setPendingFiles((current) => [...current, ...processedFiles]);
+        setPendingClientFiles((current) => [...current, ...processedFiles]);
         toast({
           type: "success",
           description: `${processedFiles.length} file${
@@ -321,16 +321,16 @@ export function ClientAssignmentPanel({
         event.target.value = "";
       }
     },
-    [setPendingFiles]
+    [setPendingClientFiles]
   );
 
   const removePendingFile = useCallback(
     (tempId: string) => {
-      setPendingFiles((current) =>
+      setPendingClientFiles((current) =>
         current.filter((file) => file.tempId !== tempId)
       );
     },
-    [setPendingFiles]
+    [setPendingClientFiles]
   );
 
   return (

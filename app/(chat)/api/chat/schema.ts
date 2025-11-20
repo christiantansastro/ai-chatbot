@@ -15,7 +15,7 @@ const filePartSchema = z.object({
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "text/csv"
+    "text/csv",
   ]),
   name: z.string().min(1).max(100),
   url: z.string().url().or(z.literal("")), // Allow empty URL for temp files
@@ -30,7 +30,11 @@ export const postRequestBodySchema = z.object({
     role: z.enum(["user"]),
     parts: z.array(partSchema),
   }),
-  selectedChatModel: z.enum(["chat-model", "chat-model-gpt5-mini", "chat-model-reasoning"]),
+  selectedChatModel: z.enum([
+    "chat-model",
+    "chat-model-gpt5-mini",
+    "chat-model-reasoning",
+  ]),
   selectedVisibilityType: z.enum(["public", "private"]),
 });
 

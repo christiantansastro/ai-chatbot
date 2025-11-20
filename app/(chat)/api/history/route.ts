@@ -23,9 +23,11 @@ export async function GET(request: NextRequest) {
     return new ChatSDKError("unauthorized:chat").toResponse();
   }
 
+  const userId = session.user.id;
+
   try {
     const chats = await getChatsByUserId({
-      id: session.user.id!,
+      id: userId,
       limit,
       startingAfter,
       endingBefore,
@@ -33,7 +35,10 @@ export async function GET(request: NextRequest) {
 
     return Response.json(chats);
   } catch (error) {
-    console.error('Error fetching chat history:', error);
-    return new ChatSDKError("bad_request:database", "Failed to fetch chat history").toResponse();
+    console.error("Error fetching chat history:", error);
+    return new ChatSDKError(
+      "bad_request:database",
+      "Failed to fetch chat history"
+    ).toResponse();
   }
 }

@@ -260,7 +260,7 @@ export function Chat({
         open={isClientAssignmentOpen}
         pendingFiles={pendingClientFiles}
         setAttachedClientName={setAttachedClientName}
-        setPendingFiles={setPendingClientFiles}
+        setPendingClientFiles={setPendingClientFiles}
         setStoredClientAttachments={setStoredClientAttachments}
       />
 

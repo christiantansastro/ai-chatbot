@@ -1,5 +1,5 @@
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createClient } from '@supabase/supabase-js';
 import { DUMMY_PASSWORD } from "@/lib/constants";
 
 export async function GET(request: Request) {
@@ -11,14 +11,16 @@ export async function GET(request: Request) {
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    console.error('Missing Supabase environment variables');
-    return NextResponse.redirect(new URL('/login?error=config', request.url));
+    console.error("Missing Supabase environment variables");
+    return NextResponse.redirect(new URL("/login?error=config", request.url));
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   // Check if user already has a session
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
   if (session) {
     return NextResponse.redirect(new URL("/", request.url));
@@ -26,14 +28,14 @@ export async function GET(request: Request) {
 
   try {
     // Create a guest user in Supabase Auth
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email: `guest-${Date.now()}@guest.local`,
       password: DUMMY_PASSWORD,
       options: {
         data: {
-          type: 'guest'
-        }
-      }
+          type: "guest",
+        },
+      },
     });
 
     if (error) {
@@ -52,7 +54,7 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(new URL(redirectUrl, request.url));
   } catch (error) {
-    console.error('Guest authentication error:', error);
+    console.error("Guest authentication error:", error);
     return NextResponse.redirect(new URL("/login", request.url));
   }
 }

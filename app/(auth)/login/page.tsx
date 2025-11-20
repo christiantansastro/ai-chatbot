@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSession, signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 
 import { AuthForm } from "@/components/auth-form";
@@ -25,15 +25,15 @@ export default function Page() {
 
   const handleSubmit = async (formData: FormData) => {
     setIsLoading(true);
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
+    const formEmail = formData.get("email") as string;
+    const formPassword = formData.get("password") as string;
 
-    setEmail(email);
+    setEmail(formEmail);
 
     try {
       const result = await signIn("supabase", {
-        email,
-        password,
+        email: formEmail,
+        password: formPassword,
         redirect: false,
       });
 

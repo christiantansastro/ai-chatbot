@@ -5,14 +5,14 @@ import { cookies } from "next/headers";
 import type { VisibilityType } from "@/components/visibility-selector";
 import { myProvider } from "@/lib/ai/providers";
 import {
+  type CreateClientData,
+  createClientRecord,
+} from "@/lib/clients/create-client";
+import {
   deleteMessagesByChatIdAfterTimestamp,
   getMessageById,
   updateChatVisiblityById,
 } from "@/lib/db/queries";
-import {
-  createClientRecord,
-  type CreateClientData,
-} from "@/lib/clients/create-client";
 
 export async function saveChatModelAsCookie(model: string) {
   const cookieStore = await cookies();
@@ -69,9 +69,9 @@ export async function createClientAction(
       { includeFinancialTransactions: true }
     );
 
-    financial.errors.forEach((errorMessage) =>
-      console.warn("CLIENT CREATE ACTION: %s", errorMessage)
-    );
+    for (const errorMessage of financial.errors) {
+      console.warn("CLIENT CREATE ACTION: %s", errorMessage);
+    }
 
     return {
       success: true,

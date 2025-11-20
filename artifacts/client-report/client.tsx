@@ -12,9 +12,13 @@ type ClientReportArtifactMetadata = {
   // Add any metadata specific to client reports if needed
 };
 
-export const clientReportArtifact = new Artifact<"client-report", ClientReportArtifactMetadata>({
+export const clientReportArtifact = new Artifact<
+  "client-report",
+  ClientReportArtifactMetadata
+>({
   kind: "client-report",
-  description: "Professional client report document with client information and communication history.",
+  description:
+    "Professional client report document with client information and communication history.",
   initialize: async ({ documentId, setMetadata }) => {
     // Initialize metadata if needed
     setMetadata({});
@@ -25,10 +29,10 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
       setArtifact((draftArtifact) => {
         const newContent = draftArtifact.content + streamPart.data;
         // For client reports, show the artifact panel with HTML content preview
-        console.log('🔍 CLIENT REPORT ARTIFACT: StreamPart received', {
+        console.log("🔍 CLIENT REPORT ARTIFACT: StreamPart received", {
           dataLength: streamPart.data.length,
           newContentLength: newContent.length,
-          currentVisible: draftArtifact.isVisible
+          currentVisible: draftArtifact.isVisible,
         });
 
         return {
@@ -84,17 +88,21 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
       onClick: async ({ content }) => {
         try {
           // Extract client name from HTML content (simple parsing)
-          const clientNameMatch = content.match(/<div class="label">Client Name<\/div>\s*<div class="value">([^<]+)<\/div>/);
-          const dateMatch = content.match(/<div class="date">Report Date: ([^<]+)<\/div>/);
+          const clientNameMatch = content.match(
+            /<div class="label">Client Name<\/div>\s*<div class="value">([^<]+)<\/div>/
+          );
+          const dateMatch = content.match(
+            /<div class="date">Report Date: ([^<]+)<\/div>/
+          );
 
           const clientName = clientNameMatch ? clientNameMatch[1] : null;
           const reportDate = dateMatch ? dateMatch[1] : null;
 
           // Call the download API
-          const response = await fetch('/api/client-report-download', {
-            method: 'POST',
+          const response = await fetch("/api/client-report-download", {
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               htmlContent: content,
@@ -104,7 +112,7 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
           });
 
           if (!response.ok) {
-            throw new Error('Failed to generate document');
+            throw new Error("Failed to generate document");
           }
 
           // Get the blob from the response
@@ -112,9 +120,9 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
 
           // Create download link
           const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
+          const a = document.createElement("a");
           a.href = url;
-          a.download = `${clientName ? `client-report-${clientName}` : 'client-report'}.docx`;
+          a.download = `${clientName ? `client-report-${clientName}` : "client-report"}.docx`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -122,7 +130,7 @@ export const clientReportArtifact = new Artifact<"client-report", ClientReportAr
 
           toast.success("Client report downloaded!");
         } catch (error) {
-          console.error('Download error:', error);
+          console.error("Download error:", error);
           toast.error("Failed to download client report");
         }
       },

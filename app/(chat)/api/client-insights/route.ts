@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { auth } from "@/app/(auth)/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server-client";
 import { formatClientRecord } from "@/lib/clients/create-client";
 import { generateUUID } from "@/lib/utils";
-import {
-  getChatById,
-  saveMessages,
-  type DBMessage,
-} from "@/lib/db/queries";
+import { getChatById, saveMessages, type DBMessage } from "@/lib/db/queries";
 import type { ChatMessage } from "@/lib/types";
 
 const SECTION_SCHEMA = z.enum([
@@ -52,7 +49,7 @@ export async function GET(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid search parameters" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -70,7 +67,7 @@ export async function GET(request: NextRequest) {
           county,
           updated_at,
           created_at
-        `,
+        `
       )
       .order("updated_at", { ascending: false })
       .limit(limit + 1);
@@ -105,11 +102,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Unable to search clients",
+          error instanceof Error ? error.message : "Unable to search clients",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -128,7 +123,7 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json(
         { error: "Invalid request body" },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -193,11 +188,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error
-            ? error.message
-            : "Unable to complete request",
+          error instanceof Error ? error.message : "Unable to complete request",
       },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
@@ -210,7 +203,7 @@ type FetchSectionArgs = {
   includeHistory: boolean;
 };
 
-async function fetchSectionData({
+function fetchSectionData({
   supabase,
   clientId,
   clientName,
@@ -223,12 +216,7 @@ async function fetchSectionData({
     case "communications":
       return fetchCommunications(supabase, clientId, clientName);
     case "financials":
-      return fetchFinancials(
-        supabase,
-        clientId,
-        clientName,
-        includeHistory,
-      );
+      return fetchFinancials(supabase, clientId, clientName, includeHistory);
     case "files":
       return fetchFiles(supabase, clientId, clientName);
     case "all":
@@ -246,7 +234,7 @@ async function fetchSectionData({
 async function fetchOverview(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   clientId: string | undefined,
-  clientName: string,
+  clientName: string
 ) {
   let builder = supabase
     .from("client_profiles")
@@ -327,7 +315,7 @@ async function fetchOverview(
     label: string,
     name: string,
     relationship: string,
-    phone: string | undefined,
+    phone: string | undefined
   ) => {
     const segments = [`${name} (${relationship})`];
     if (phone && isMeaningful(phone)) {
@@ -343,13 +331,13 @@ async function fetchOverview(
       "Primary",
       formatted.contact1,
       formatted.relationship1,
-      formatted.contact1Phone,
+      formatted.contact1Phone
     ),
     formatContactLine(
       "Secondary",
       formatted.contact2,
       formatted.relationship2,
-      formatted.contact2Phone,
+      formatted.contact2Phone
     ),
   ].join("\n");
 
@@ -368,7 +356,7 @@ async function fetchOverview(
 async function fetchCommunications(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   clientId: string | undefined,
-  clientName: string,
+  clientName: string
 ) {
   let builder = supabase
     .from("client_communications")
@@ -383,7 +371,7 @@ async function fetchCommunications(
         priority,
         subject,
         notes
-      `,
+      `
     )
     .order("communication_date", { ascending: false })
     .order("created_at", { ascending: false })
@@ -404,7 +392,7 @@ async function fetchCommunications(
         `
           *,
           clients!inner(client_name)
-        `,
+        `
       )
       .order("communication_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -460,7 +448,7 @@ async function fetchFinancials(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   clientId: string | undefined,
   clientName: string,
-  includeHistory: boolean,
+  includeHistory: boolean
 ) {
   const buildQuery = () =>
     supabase
@@ -476,7 +464,7 @@ async function fetchFinancials(
         payment_method,
         service_description,
         notes
-      `,
+      `
       )
       .order("transaction_date", { ascending: false })
       .order("created_at", { ascending: false })
@@ -508,20 +496,20 @@ async function fetchFinancials(
   let totalPaid = 0;
   let adjustments = 0;
 
-  data.forEach((tx) => {
-      const amount = Number(tx.amount ?? 0);
-      if (Number.isNaN(amount)) {
-        return;
-      }
-      const type = tx.transaction_type?.toLowerCase();
-      if (type === "quote") {
-        totalQuoted += amount;
-      } else if (type === "payment") {
-        totalPaid += amount;
-      } else if (type === "adjustment") {
-        adjustments += amount;
-      }
-  });
+  for (const tx of data) {
+    const amount = Number(tx.amount ?? 0);
+    if (Number.isNaN(amount)) {
+      continue;
+    }
+    const type = tx.transaction_type?.toLowerCase();
+    if (type === "quote") {
+      totalQuoted += amount;
+    } else if (type === "payment") {
+      totalPaid += amount;
+    } else if (type === "adjustment") {
+      adjustments += amount;
+    }
+  }
 
   const balance = totalQuoted - totalPaid - adjustments;
   const head = [
@@ -546,7 +534,9 @@ async function fetchFinancials(
       `- ${date} - ${type}`,
       `  Amount: ${formatCurrency(amount)}`,
       tx.payment_method ? `  Method: ${tx.payment_method}` : undefined,
-      tx.service_description ? `  Service: ${tx.service_description}` : undefined,
+      tx.service_description
+        ? `  Service: ${tx.service_description}`
+        : undefined,
       tx.notes ? `  Notes: ${tx.notes}` : undefined,
     ].filter(Boolean);
 
@@ -556,7 +546,7 @@ async function fetchFinancials(
   return {
     clientLabel: data[0]?.client_name ?? clientName,
     content: [...head, "", "**Recent Transactions**", ...historyLines].join(
-      "\n",
+      "\n"
     ),
     summary: `Balance for ${
       data[0]?.client_name ?? clientName
@@ -571,7 +561,7 @@ async function fetchFinancials(
 async function fetchFiles(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   clientId: string | undefined,
-  clientName: string,
+  clientName: string
 ) {
   let nameFilter = clientName;
 
@@ -593,7 +583,7 @@ async function fetchFiles(
         file_type,
         file_url,
         upload_timestamp
-      `,
+      `
       )
       .order("upload_timestamp", { ascending: false })
       .limit(15);
@@ -615,7 +605,7 @@ async function fetchFiles(
           file_type,
           file_url,
           upload_timestamp
-        `,
+        `
         )
         .order("upload_timestamp", { ascending: false })
         .limit(15);
@@ -695,8 +685,7 @@ async function fetchAllSections({
       .map(({ data }) => data.summary)
       .filter(Boolean)
       .join(" ")
-      .trim() ||
-    `Compiled all available information for ${clientName}.`;
+      .trim() || `Compiled all available information for ${clientName}.`;
 
   const clientLabel =
     overview.clientLabel ||
@@ -708,8 +697,7 @@ async function fetchAllSections({
   return {
     clientLabel,
     content:
-      content ||
-      `No additional information was available for ${clientLabel}.`,
+      content || `No additional information was available for ${clientLabel}.`,
     summary,
     meta: {
       overview: overview.meta,
@@ -732,8 +720,7 @@ function buildAssistantMessage({
   summary: string;
 }) {
   const id = generateUUID();
-  const sectionLabel =
-    section === "all" ? "All data" : titleCase(section);
+  const sectionLabel = section === "all" ? "All data" : titleCase(section);
 
   const text = [
     `### ${sectionLabel} for ${clientLabel}`,
@@ -757,7 +744,9 @@ function buildAssistantMessage({
 }
 
 function formatDate(value: string | null | undefined) {
-  if (!value) return "Date unavailable";
+  if (!value) {
+    return "Date unavailable";
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -776,13 +765,15 @@ function titleCase(value: string) {
     .map((segment) =>
       segment.length > 0
         ? segment.charAt(0).toUpperCase() + segment.slice(1)
-        : segment,
+        : segment
     )
     .join(" ");
 }
 
 function isMissingRelationError(error: any) {
-  if (!error) return false;
+  if (!error) {
+    return false;
+  }
   return (
     error.code === "42P01" ||
     (typeof error.message === "string" &&
@@ -791,7 +782,9 @@ function isMissingRelationError(error: any) {
 }
 
 function isMissingColumnError(error: any) {
-  if (!error) return false;
+  if (!error) {
+    return false;
+  }
   return (
     error.code === "42703" ||
     (typeof error.message === "string" &&
@@ -801,7 +794,7 @@ function isMissingColumnError(error: any) {
 
 async function resolveClientName(
   supabase: ReturnType<typeof createServerSupabaseClient>,
-  clientId: string,
+  clientId: string
 ) {
   let { data, error } = await supabase
     .from("client_profiles")
@@ -858,7 +851,7 @@ function buildOverviewSummary(client: FormattedClient) {
     summaryParts.push(client.clientType);
   }
 
-  const contactParts = [];
+  const contactParts: string[] = [];
   if (isMeaningful(client.email)) {
     contactParts.push(`Email ${client.email.trim()}`);
   }
@@ -886,5 +879,3 @@ function isMeaningful(value: string | undefined) {
     normalized === "no email"
   );
 }
-
-

@@ -25,17 +25,18 @@ export default function Page() {
 
   const handleSubmit = async (formData: FormData) => {
     setIsLoading(true);
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
+    const formEmail = formData.get("email") as string;
+    const formPassword = formData.get("password") as string;
 
-    setEmail(email);
+    setEmail(formEmail);
 
     try {
-      await signUp(email, password);
+      await signUp(formEmail, formPassword);
       setIsSuccessful(true);
       toast({
         type: "success",
-        description: "Account created successfully! Please check your email to confirm your account.",
+        description:
+          "Account created successfully! Please check your email to confirm your account.",
       });
 
       // Redirect to login after a short delay

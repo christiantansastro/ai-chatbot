@@ -1,4 +1,3 @@
-import { geolocation } from "@vercel/functions";
 import {
   convertToModelMessages,
   createUIMessageStream,
@@ -7,52 +6,39 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
+import { geolocation } from "@vercel/functions";
 import { unstable_cache as cache } from "next/cache";
 import type { ModelCatalog } from "tokenlens/core";
 import { fetchModels } from "tokenlens/fetch";
 import { getUsage } from "tokenlens/helpers";
 import { auth, type UserType } from "@/app/(auth)/auth";
 import type { VisibilityType } from "@/components/visibility-selector";
+import { isProductionEnvironment } from "@/lib/constants";
 import { entitlementsByUserType } from "@/lib/ai/entitlements";
 import type { ChatModel } from "@/lib/ai/models";
 import { type RequestHints, systemPrompt } from "@/lib/ai/prompts";
 import { myProvider } from "@/lib/ai/providers";
-import { runSupabaseSqlTool } from "@/lib/ai/tools/run-supabase-sql";
-import { getClientProfileTool } from "@/lib/ai/tools/get-client-profile";
-import { createClient } from "@/lib/ai/tools/create-client";
-import { updateClient } from "@/lib/ai/tools/update-client";
-import { deleteClient } from "@/lib/ai/tools/delete-client";
-import { getClientByNameTool } from "@/lib/ai/tools/get-client-by-name";
-import { listClientsWithOutstandingBalanceTool } from "@/lib/ai/tools/list-clients-with-outstanding-balance";
-import { queryRecentPayments } from "@/lib/ai/tools/query-recent-payments";
-import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
-import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
-import { deleteFinancialTransaction } from "@/lib/ai/tools/delete-financial-transaction";
-import { getFinancialHistory } from "@/lib/ai/tools/get-financial-history";
-import { queryCommunications } from "@/lib/ai/tools/query-communications";
 import { addCommunication } from "@/lib/ai/tools/add-communication";
-import { updateCommunication } from "@/lib/ai/tools/update-communication";
-import { deleteCommunication } from "@/lib/ai/tools/delete-communication";
-import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
-import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
+import { addFinancialTransaction } from "@/lib/ai/tools/add-financial-transaction";
+import { createClient as createClientTool } from "@/lib/ai/tools/create-client";
 import { createClientReport } from "@/lib/ai/tools/create-client-report";
+import { createFinancialStatement } from "@/lib/ai/tools/create-financial-statement";
+import { deleteClient } from "@/lib/ai/tools/delete-client";
+import { deleteCommunication } from "@/lib/ai/tools/delete-communication";
+import { deleteFinancialTransaction } from "@/lib/ai/tools/delete-financial-transaction";
+import { getClientByNameTool } from "@/lib/ai/tools/get-client-by-name";
+import { getClientProfileTool } from "@/lib/ai/tools/get-client-profile";
+import { getCommunicationSummary } from "@/lib/ai/tools/get-communication-summary";
+import { getFinancialHistory } from "@/lib/ai/tools/get-financial-history";
+import { listClientsWithOutstandingBalanceTool } from "@/lib/ai/tools/list-clients-with-outstanding-balance";
+import { queryCommunications } from "@/lib/ai/tools/query-communications";
+import { queryRecentPayments } from "@/lib/ai/tools/query-recent-payments";
+import { runSupabaseSqlTool } from "@/lib/ai/tools/run-supabase-sql";
+import { updateClient } from "@/lib/ai/tools/update-client";
+import { updateCommunication } from "@/lib/ai/tools/update-communication";
+import { updateFinancialTransaction } from "@/lib/ai/tools/update-financial-transaction";
 import { fileStorage } from "@/lib/ai/tools/file-storage";
 import { MultiAgentSystem } from "@/lib/ai/agents/multi-agent-system";
-// Google Tools
-import {
-  createCalendarEvent,
-  readCalendarEvents,
-  updateCalendarEvent,
-  deleteCalendarEvent
-} from "@/lib/ai/tools/google-calendar";
-import {
-  createTask,
-  readTasks,
-  updateTask,
-  deleteTask,
-  markTaskComplete
-} from "@/lib/ai/tools/google-tasks";
-import { isProductionEnvironment } from "@/lib/constants";
 import {
   createStreamId,
   deleteChatById,
@@ -61,15 +47,15 @@ import {
   getMessagesByChatId,
   saveChat,
   saveMessages,
+  testDatabaseOperations,
   updateChatLastContextById,
 } from "@/lib/db/queries";
 import { ChatSDKError } from "@/lib/errors";
-import type { ChatMessage } from "@/lib/types";
 import type { AppUsage } from "@/lib/usage";
+import type { ChatMessage } from "@/lib/types";
 import { convertToUIMessages, generateUUID } from "@/lib/utils";
 import { generateTitleFromUserMessage } from "../../actions";
 import { type PostRequestBody, postRequestBodySchema } from "./schema";
-import { testDatabaseOperations } from "@/lib/db/queries";
 
 export const maxDuration = 60;
 
@@ -98,11 +84,11 @@ export async function POST(request: Request) {
 
   try {
     const json = await request.json();
-    console.log('Received request body:', JSON.stringify(json, null, 2));
+    console.log("Received request body:", JSON.stringify(json, null, 2));
     requestBody = postRequestBodySchema.parse(json);
-    console.log('Parsed request body successfully');
+    console.log("Parsed request body successfully");
   } catch (error) {
-    console.error('Failed to parse request body:', error);
+    console.error("Failed to parse request body:", error);
     return new ChatSDKError("bad_request:api").toResponse();
   }
 
@@ -125,10 +111,12 @@ export async function POST(request: Request) {
       return new ChatSDKError("unauthorized:chat").toResponse();
     }
 
+    const userId = session.user.id;
+
     const userType: UserType = (session.user as any).type || "regular";
 
     const messageCount = await getMessageCountByUserId({
-      id: session.user.id!,
+      id: userId,
       differenceInHours: 24,
     });
 
@@ -139,7 +127,7 @@ export async function POST(request: Request) {
     const chat = await getChatById({ id });
 
     if (chat) {
-      if (chat.userId !== session.user.id) {
+      if (chat.userId !== userId) {
         return new ChatSDKError("forbidden:chat").toResponse();
       }
     } else {
@@ -149,7 +137,7 @@ export async function POST(request: Request) {
 
       const savedChat = await saveChat({
         id,
-        userId: session.user.id!,
+        userId,
         title,
         visibility: selectedVisibilityType,
       });
@@ -170,7 +158,7 @@ export async function POST(request: Request) {
       country,
     };
 
-    console.log('Saving user message with parts:', message.parts);
+    console.log("Saving user message with parts:", message.parts);
 
     await saveMessages({
       messages: [
@@ -190,29 +178,31 @@ export async function POST(request: Request) {
 
     let finalMergedUsage: AppUsage | undefined;
 
-    console.log('=== STARTING STREAM PROCESSING ===');
-    console.log('Selected model:', selectedChatModel);
-    console.log('UI Messages count:', uiMessages.length);
+    console.log("=== STARTING STREAM PROCESSING ===");
+    console.log("Selected model:", selectedChatModel);
+    console.log("UI Messages count:", uiMessages.length);
 
     const stream = createUIMessageStream({
       execute: async ({ writer: dataStream }) => {
-        console.log('Executing stream with dataStream writer');
+        console.log("Executing stream with dataStream writer");
 
         // Extract text content from the user's message for intent classification
-        const userMessageText = message.parts
-          ?.filter(part => part.type === 'text')
-          ?.map(part => (part as any).text || '')
-          ?.join(' ') || '';
+        const userMessageText =
+          message.parts
+            ?.filter((part) => part.type === "text")
+            ?.map((part) => (part as any).text || "")
+            ?.join(" ") || "";
 
         // Check if message has file attachments
-        const hasFileAttachments = message.parts?.some(part =>
-          part.type === 'file' || (part as any).type === 'file'
-        ) || false;
+        const hasFileAttachments =
+          message.parts?.some(
+            (part) => part.type === "file" || (part as any).type === "file"
+          ) || false;
 
-        console.log('Message analysis:', {
+        console.log("Message analysis:", {
           hasText: !!userMessageText.trim(),
           hasFileAttachments,
-          partsCount: message.parts?.length || 0
+          partsCount: message.parts?.length || 0,
         });
 
         // Use multi-agent system to determine which tools should be available
@@ -220,7 +210,8 @@ export async function POST(request: Request) {
           run_supabase_sql: runSupabaseSqlTool,
           get_client_profile: getClientProfileTool,
           get_client_by_name: getClientByNameTool,
-          list_clients_with_outstanding_balance: listClientsWithOutstandingBalanceTool,
+          list_clients_with_outstanding_balance:
+            listClientsWithOutstandingBalanceTool,
         };
         let availableTools: Record<string, any> = {};
         let activeToolNames: string[] = [];
@@ -230,18 +221,24 @@ export async function POST(request: Request) {
             const multiAgentSystem = new MultiAgentSystem();
             await multiAgentSystem.initialize();
 
-            const classification = multiAgentSystem.classifyQuery(userMessageText);
-            console.log(`🤖 Multi-Agent: Query classified as ${classification.category} (${classification.confidence.toFixed(2)} confidence)`);
+            const classification =
+              multiAgentSystem.classifyQuery(userMessageText);
+            console.log(
+              `🤖 Multi-Agent: Query classified as ${classification.category} (${classification.confidence.toFixed(2)} confidence)`
+            );
 
             // Determine which tools to make available based on classification
             switch (classification.category) {
-              case 'clients':
+              case "clients":
                 availableTools = {
                   ...readonlyTools,
-                  createClient,
+                  createClient: createClientTool,
                   updateClient,
                   deleteClient,
-                  createClientReport: createClientReport({ session, dataStream }),
+                  createClientReport: createClientReport({
+                    session,
+                    dataStream,
+                  }),
                 };
                 activeToolNames = [
                   "get_client_profile",
@@ -251,11 +248,11 @@ export async function POST(request: Request) {
                   "createClient",
                   "updateClient",
                   "deleteClient",
-                  "createClientReport"
+                  "createClientReport",
                 ];
                 break;
 
-              case 'financials':
+              case "financials":
                 availableTools = {
                   ...readonlyTools,
                   queryRecentPayments,
@@ -263,16 +260,26 @@ export async function POST(request: Request) {
                   updateFinancialTransaction,
                   deleteFinancialTransaction,
                   getFinancialHistory,
-                  createFinancialStatement: createFinancialStatement({ session, dataStream }),
+                  createFinancialStatement: createFinancialStatement({
+                    session,
+                    dataStream,
+                  }),
                 };
                 activeToolNames = [
-                  "get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql",
-                  "queryRecentPayments", "addFinancialTransaction",
-                  "updateFinancialTransaction", "deleteFinancialTransaction", "getFinancialHistory", "createFinancialStatement"
+                  "get_client_profile",
+                  "get_client_by_name",
+                  "list_clients_with_outstanding_balance",
+                  "run_supabase_sql",
+                  "queryRecentPayments",
+                  "addFinancialTransaction",
+                  "updateFinancialTransaction",
+                  "deleteFinancialTransaction",
+                  "getFinancialHistory",
+                  "createFinancialStatement",
                 ];
                 break;
 
-              case 'communications':
+              case "communications":
                 availableTools = {
                   queryCommunications,
                   addCommunication,
@@ -280,16 +287,26 @@ export async function POST(request: Request) {
                   deleteCommunication,
                   getCommunicationSummary,
                 };
-                activeToolNames = ["queryCommunications", "addCommunication", "updateCommunication", "deleteCommunication", "getCommunicationSummary"];
+                activeToolNames = [
+                  "queryCommunications",
+                  "addCommunication",
+                  "updateCommunication",
+                  "deleteCommunication",
+                  "getCommunicationSummary",
+                ];
                 break;
 
-              case 'files':
+              case "files":
                 availableTools = {
                   fileStorage,
                   get_client_profile: getClientProfileTool,
                   get_client_by_name: getClientByNameTool, // For client validation in file operations
                 };
-                activeToolNames = ["fileStorage", "get_client_profile", "get_client_by_name"];
+                activeToolNames = [
+                  "fileStorage",
+                  "get_client_profile",
+                  "get_client_by_name",
+                ];
                 break;
 
               default:
@@ -298,17 +315,29 @@ export async function POST(request: Request) {
                   ...readonlyTools,
                   fileStorage,
                 };
-                activeToolNames = ["get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql", "fileStorage"];
+                activeToolNames = [
+                  "get_client_profile",
+                  "get_client_by_name",
+                  "list_clients_with_outstanding_balance",
+                  "run_supabase_sql",
+                  "fileStorage",
+                ];
                 break;
             }
           } catch (error) {
-            console.error('Error in multi-agent classification:', error);
+            console.error("Error in multi-agent classification:", error);
             // Fallback to limited tools if classification fails
             availableTools = {
               ...readonlyTools,
               fileStorage,
             };
-            activeToolNames = ["get_client_profile", "get_client_by_name", "list_clients_with_outstanding_balance", "run_supabase_sql", "fileStorage"];
+            activeToolNames = [
+              "get_client_profile",
+              "get_client_by_name",
+              "list_clients_with_outstanding_balance",
+              "run_supabase_sql",
+              "fileStorage",
+            ];
           }
         } else {
           // No text content, provide basic tools
@@ -317,7 +346,11 @@ export async function POST(request: Request) {
             get_client_by_name: getClientByNameTool,
             fileStorage,
           };
-          activeToolNames = ["fileStorage", "get_client_profile", "get_client_by_name"];
+          activeToolNames = [
+            "fileStorage",
+            "get_client_profile",
+            "get_client_by_name",
+          ];
         }
 
         const result = streamText({
@@ -328,7 +361,7 @@ export async function POST(request: Request) {
           experimental_activeTools:
             selectedChatModel === "chat-model-reasoning"
               ? []
-              : activeToolNames as any,
+              : (activeToolNames as any),
           experimental_transform: smoothStream({ chunking: "word" }),
           tools: availableTools,
           experimental_telemetry: {
@@ -336,19 +369,19 @@ export async function POST(request: Request) {
             functionId: "stream-text",
           },
           onFinish: async ({ usage }) => {
-            console.log('=== STREAM FINISH DEBUG ===');
-            console.log('Usage data:', usage);
+            console.log("=== STREAM FINISH DEBUG ===");
+            console.log("Usage data:", usage);
 
             try {
               const providers = await getTokenlensCatalog();
               const modelId =
                 myProvider.languageModel(selectedChatModel).modelId;
 
-              console.log('Model ID:', modelId);
-              console.log('Providers:', !!providers);
+              console.log("Model ID:", modelId);
+              console.log("Providers:", !!providers);
 
               if (!modelId) {
-                console.log('No model ID, using basic usage');
+                console.log("No model ID, using basic usage");
                 finalMergedUsage = usage;
                 dataStream.write({
                   type: "data-usage",
@@ -358,7 +391,7 @@ export async function POST(request: Request) {
               }
 
               if (!providers) {
-                console.log('No providers, using basic usage');
+                console.log("No providers, using basic usage");
                 finalMergedUsage = usage;
                 dataStream.write({
                   type: "data-usage",
@@ -369,7 +402,7 @@ export async function POST(request: Request) {
 
               const summary = getUsage({ modelId, usage, providers });
               finalMergedUsage = { ...usage, ...summary, modelId } as AppUsage;
-              console.log('Final merged usage:', finalMergedUsage);
+              console.log("Final merged usage:", finalMergedUsage);
               dataStream.write({ type: "data-usage", data: finalMergedUsage });
             } catch (err) {
               console.warn("TokenLens enrichment failed", err);
@@ -379,10 +412,10 @@ export async function POST(request: Request) {
           },
         });
 
-        console.log('Stream created, consuming stream...');
+        console.log("Stream created, consuming stream...");
         result.consumeStream();
 
-        console.log('Merging UI message stream...');
+        console.log("Merging UI message stream...");
         dataStream.merge(
           result.toUIMessageStream({
             sendReasoning: true,
@@ -391,42 +424,45 @@ export async function POST(request: Request) {
       },
       generateId: generateUUID,
       onFinish: async ({ messages }) => {
-        console.log('=== AI RESPONSE FINISH DEBUG ===');
-        console.log('Saving AI response messages:', messages.length);
+        console.log("=== AI RESPONSE FINISH DEBUG ===");
+        console.log("Saving AI response messages:", messages.length);
 
         for (const currentMessage of messages) {
-          console.log('Processing AI message:', {
+          console.log("Processing AI message:", {
             id: currentMessage.id,
             role: currentMessage.role,
             parts: currentMessage.parts,
             partsType: typeof currentMessage.parts,
-            hasParts: !!currentMessage.parts
+            hasParts: !!currentMessage.parts,
           });
 
           // Add null safety check
           if (!currentMessage.parts) {
-            console.error('AI message parts is undefined/null:', currentMessage);
+            console.error(
+              "AI message parts is undefined/null:",
+              currentMessage
+            );
             continue;
           }
 
-          console.log('AI message parts:', currentMessage.parts);
+          console.log("AI message parts:", currentMessage.parts);
         }
 
         // Filter out messages with undefined parts
-        const validMessages = messages.filter(msg => {
+        const validMessages = messages.filter((msg) => {
           if (!msg.parts) {
-            console.warn('Skipping message with undefined parts:', msg.id);
+            console.warn("Skipping message with undefined parts:", msg.id);
             return false;
           }
           return true;
         });
 
         if (validMessages.length === 0) {
-          console.error('No valid messages to save!');
+          console.error("No valid messages to save!");
           return;
         }
 
-        console.log('Saving valid messages:', validMessages.length);
+        console.log("Saving valid messages:", validMessages.length);
         await saveMessages({
           messages: validMessages.map((currentMessage) => ({
             id: currentMessage.id,
@@ -464,24 +500,37 @@ export async function POST(request: Request) {
     //   );
     // }
 
-    console.log('=== CREATING RESPONSE ===');
-    console.log('Stream created successfully, piping through JsonToSseTransformStream');
+    console.log("=== CREATING RESPONSE ===");
+    console.log(
+      "Stream created successfully, piping through JsonToSseTransformStream"
+    );
 
     try {
-      const response = new Response(stream.pipeThrough(new JsonToSseTransformStream()));
-      console.log('Response created successfully');
+      const response = new Response(
+        stream.pipeThrough(new JsonToSseTransformStream())
+      );
+      console.log("Response created successfully");
       return response;
     } catch (error) {
-      console.error('Error creating response:', error);
+      console.error("Error creating response:", error);
       throw error;
     }
   } catch (error: unknown) {
     const vercelId = request.headers.get("x-vercel-id");
 
     console.error("=== CATCHING ERROR IN CHAT API ===");
-    console.error("Error type:", error instanceof Error ? error.constructor.name : typeof error);
-    console.error("Error message:", error instanceof Error ? error.message : String(error));
-    console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace');
+    console.error(
+      "Error type:",
+      error instanceof Error ? error.constructor.name : typeof error
+    );
+    console.error(
+      "Error message:",
+      error instanceof Error ? error.message : String(error)
+    );
+    console.error(
+      "Error stack:",
+      error instanceof Error ? error.stack : "No stack trace"
+    );
     console.error("Vercel ID:", vercelId);
 
     if (error instanceof ChatSDKError) {
@@ -527,8 +576,10 @@ export async function GET(request: Request) {
       return new ChatSDKError("unauthorized:chat").toResponse();
     }
 
+    const userId = session.user.id;
+
     try {
-      const result = await testDatabaseOperations(session.user.id!);
+      const result = await testDatabaseOperations(userId);
       return Response.json(result, { status: 200 });
     } catch (error) {
       console.error("Database test failed:", error);
@@ -539,58 +590,81 @@ export async function GET(request: Request) {
   if (test === "clients") {
     // Test client querying functionality
     try {
-      const { createClient } = await import('@supabase/supabase-js');
+      const { createClient: createSupabaseClient } = await import(
+        "@supabase/supabase-js"
+      );
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
       const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
       if (!supabaseUrl || !supabaseKey) {
-        return Response.json({
-          error: "Missing Supabase configuration",
-          details: "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required"
-        }, { status: 500 });
+        return Response.json(
+          {
+            error: "Missing Supabase configuration",
+            details:
+              "NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY are required",
+          },
+          { status: 500 }
+        );
       }
 
-      const supabase = createClient(supabaseUrl, supabaseKey);
+      const supabase = createSupabaseClient(supabaseUrl, supabaseKey);
 
       // Test basic connectivity - try with service role to bypass RLS
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      let clients, error;
+      let clients: any[] | null = null;
+      let error: any = null;
 
       if (serviceRoleKey) {
-        const serviceSupabase = createClient(supabaseUrl, serviceRoleKey);
+        const serviceSupabase = createSupabaseClient(
+          supabaseUrl,
+          serviceRoleKey
+        );
         const result = await serviceSupabase
-          .from('clients')
-          .select('client_name, email, phone, address, contact_1, relationship_1, notes')
+          .from("clients")
+          .select(
+            "client_name, email, phone, address, contact_1, relationship_1, notes"
+          )
           .limit(5);
         clients = result.data;
         error = result.error;
       } else {
         const result = await supabase
-          .from('clients')
-          .select('client_name, email, phone, address, contact_1, relationship_1, notes')
+          .from("clients")
+          .select(
+            "client_name, email, phone, address, contact_1, relationship_1, notes"
+          )
           .limit(5);
         clients = result.data;
         error = result.error;
       }
 
       if (error) {
-        return Response.json({
-          error: "Database query failed",
-          details: error.message,
-          code: error.code
-        }, { status: 500 });
+        return Response.json(
+          {
+            error: "Database query failed",
+            details: error.message,
+            code: error.code,
+          },
+          { status: 500 }
+        );
       }
 
-      return Response.json({
-        success: true,
-        message: `Found ${clients?.length || 0} clients`,
-        data: clients
-      }, { status: 200 });
+      return Response.json(
+        {
+          success: true,
+          message: `Found ${clients?.length || 0} clients`,
+          data: clients,
+        },
+        { status: 200 }
+      );
     } catch (error) {
-      return Response.json({
-        error: "Test failed",
-        details: error instanceof Error ? error.message : "Unknown error"
-      }, { status: 500 });
+      return Response.json(
+        {
+          error: "Test failed",
+          details: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
     }
   }
 
@@ -612,8 +686,9 @@ export async function DELETE(request: Request) {
   }
 
   const chat = await getChatById({ id });
+  const userId = session.user.id;
 
-  if (chat?.userId !== session.user.id) {
+  if (chat?.userId !== userId) {
     return new ChatSDKError("forbidden:chat").toResponse();
   }
 
