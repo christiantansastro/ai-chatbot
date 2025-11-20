@@ -2,6 +2,38 @@ import { createDocumentHandler } from "@/lib/artifacts/server";
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 import type { UIMessageStreamWriter } from "ai";
 import type { ChatMessage } from "@/lib/types";
+import { findBestClientMatch } from "@/lib/utils/client-search";
+
+const DASH_PATTERN = /[-–—]/;
+
+const pickLastSegment = (value: string): string => {
+  const parts = value
+    .split(DASH_PATTERN)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts[parts.length - 1] : value.trim();
+};
+
+const extractClientNameFromTitle = (title: string): string | null => {
+  if (!title) return null;
+
+  const patterns = [
+    /Client Report\s*[–—-]\s*(.+)$/i,
+    /Report\s*for\s*(.+)$/i,
+    /for\s+(.+)$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = title.match(pattern);
+    if (match?.[1]) {
+      return pickLastSegment(match[1]);
+    }
+  }
+
+  const lastDashSegment = pickLastSegment(title);
+  return lastDashSegment || null;
+};
 
 // Interfaces matching actual database schema
 interface ClientCommunication {
@@ -110,23 +142,14 @@ async function generateClientReportContentWithoutStreaming({
     // Find the client by name
     console.log('📄 CLIENT REPORT SERVER: Finding client...');
 
-    let { data: clients, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .ilike('client_name', clientName)
-      .limit(1);
+    const matchedClient = await findBestClientMatch(supabase, clientName);
 
-    if (clientError) {
-      console.error('❌ CLIENT REPORT SERVER: Client search failed:', clientError);
-      throw new Error(`Failed to find client: ${clientError.message}`);
-    }
-
-    if (!clients || clients.length === 0) {
+    if (!matchedClient) {
       console.log('❌ CLIENT REPORT SERVER: Client not found:', clientName);
       throw new Error(`Client "${clientName}" not found. Please check the name and try again.`);
     }
 
-    const client = clients[0];
+    const client = matchedClient;
     console.log('✅ CLIENT REPORT SERVER: Found client:', client.client_name);
 
     // Get communication history - only select actual fields
@@ -724,9 +747,9 @@ export const clientReportDocumentHandler = createDocumentHandler<"client-report"
   onCreateDocument: async ({ id, title, dataStream, session }) => {
     console.log('📄 CLIENT REPORT HANDLER: onCreateDocument called', { id, title, session: !!session });
 
-    // Extract client name from title (format: "Client Report - ClientName")
-    const clientNameMatch = title.match(/Client Report - (.+)/);
-    const clientName = clientNameMatch ? clientNameMatch[1] : "Unknown Client";
+    // Extract client name from title (handling em/en dashes and multiple separators)
+    const extractedName = extractClientNameFromTitle(title);
+    const clientName = extractedName || "Unknown Client";
     console.log('📄 CLIENT REPORT HANDLER: Extracted client name:', clientName);
 
     // For client reports, the content should be the same as what was streamed

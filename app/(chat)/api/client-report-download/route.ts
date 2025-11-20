@@ -3,6 +3,7 @@ import { ChatSDKError } from "@/lib/errors";
 import { getDocumentById } from "@/lib/db/queries";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, WidthType } from "docx";
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { findBestClientMatch } from "@/lib/utils/client-search";
 
 // Helper function to extract client name from HTML
 function extractClientNameFromHTML(htmlContent: string): string | null {
@@ -24,18 +25,14 @@ async function getComprehensiveClientData(clientName: string) {
     // Create Supabase client
     const supabase = createSupabaseClient(supabaseUrl, supabaseKey);
 
-    // Find the client by name
-    let { data: clients, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .ilike('client_name', clientName)
-      .limit(1);
+    // Find the client by name (allow partial/fuzzy match)
+    const matchedClient = await findBestClientMatch(supabase, clientName);
 
-    if (clientError || !clients || clients.length === 0) {
+    if (!matchedClient) {
       throw new Error(`Client "${clientName}" not found in database`);
     }
 
-    const client = clients[0];
+    const client = matchedClient;
     console.log('📄 CLIENT REPORT DOWNLOAD DEBUG: Found client with all fields:', Object.keys(client));
 
     // Get communications

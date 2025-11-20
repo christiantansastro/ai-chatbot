@@ -7,6 +7,7 @@ import {
 } from "@/lib/artifacts/server";
 import type { ChatMessage } from "@/lib/types";
 import { generateUUID } from "@/lib/utils";
+import { findBestClientMatch } from "@/lib/utils/client-search";
 
 // Simplified interfaces matching actual database schema
 interface ClientCommunication {
@@ -88,7 +89,7 @@ async function generateClientReportContent({
   reportDate?: string;
   reportTitle: string;
   dataStream: UIMessageStreamWriter<ChatMessage>;
-}): Promise<string> {
+}): Promise<{ content: string; client: ClientInfo }> {
   try {
     console.log('📄 CLIENT REPORT TOOL: Generating report for:', clientName);
 
@@ -104,22 +105,16 @@ async function generateClientReportContent({
     // Create Supabase client
     const supabase = createSupabaseClient(supabaseUrl, supabaseKey);
 
-    // Find the client by name
+    // Find the client by name (fuzzy/partial matches allowed)
     console.log('📄 CLIENT REPORT TOOL: Finding client...');
+    const matchedClient = await findBestClientMatch(supabase, clientName);
 
-    // First try to find in clients table
-    let { data: clients, error: clientError } = await supabase
-      .from('clients')
-      .select('*')
-      .ilike('client_name', clientName)
-      .limit(1);
-
-    if (clientError || !clients || clients.length === 0) {
+    if (!matchedClient) {
       console.log('❌ CLIENT REPORT TOOL: Client not found:', clientName);
       throw new Error(`Client "${clientName}" not found. Please check the name and try again.`);
     }
 
-    const client = clients[0];
+    const client = matchedClient;
     console.log('✅ CLIENT REPORT TOOL: Found client:', client.client_name);
 
     // Get communication history if requested
@@ -289,7 +284,7 @@ async function generateClientReportContent({
       includeCommunicationHistory
     });
 
-    return documentContent;
+    return { content: documentContent, client: clientInfo };
 
   } catch (error) {
     console.error('❌ CLIENT REPORT TOOL: Error generating client report:', error);
@@ -313,96 +308,94 @@ export const createClientReport = ({ session, dataStream }: CreateClientReportPr
       reportTitle = "Client Report"
     }) => {
       const id = generateUUID();
+      let hasStreamedContent = false;
 
-      // Set the artifact kind and metadata
-      dataStream.write({
-        type: "data-kind",
-        data: "client-report",
-        transient: true,
-      });
+      try {
+        const { content: documentContent, client } = await generateClientReportContent({
+          clientName,
+          includeCommunicationHistory,
+          reportDate,
+          reportTitle,
+          dataStream
+        });
 
-      dataStream.write({
-        type: "data-id",
-        data: id,
-        transient: true,
-      });
+        const resolvedClientName = client.client_name || clientName;
+        const finalTitle = `${reportTitle} - ${resolvedClientName}`.replace(/\s+/g, " ").trim();
 
-      dataStream.write({
-        type: "data-title",
-        data: `${reportTitle} - ${clientName}`,
-        transient: true,
-      });
+        // Set the artifact kind and metadata after we have a resolved client
+        dataStream.write({
+          type: "data-kind",
+          data: "client-report",
+          transient: true,
+        });
 
-      // Use the document handler to create and save the document
-      const documentHandler = documentHandlersByArtifactKind.find(
-        (handler) => handler.kind === "client-report"
-      );
+        dataStream.write({
+          type: "data-id",
+          data: id,
+          transient: true,
+        });
 
-      if (!documentHandler) {
-        throw new Error(`No document handler found for kind: client-report`);
+        dataStream.write({
+          type: "data-title",
+          data: finalTitle,
+          transient: true,
+        });
+
+        // Clear any existing artifact data
+        dataStream.write({
+          type: "data-clear",
+          data: null,
+          transient: true,
+        });
+
+        // Stream the content to the artifact
+        dataStream.write({
+          type: "data-textDelta",
+          data: documentContent,
+          transient: true,
+        });
+        hasStreamedContent = true;
+
+        // Save the document to database
+        const documentHandler = documentHandlersByArtifactKind.find(
+          (handler) => handler.kind === "client-report"
+        );
+
+        if (!documentHandler) {
+          throw new Error(`No document handler found for kind: client-report`);
+        }
+
+        await documentHandler.onCreateDocument({
+          id,
+          title: finalTitle,
+          dataStream,
+          session,
+        });
+
+        dataStream.write({ type: "data-finish", data: null, transient: true });
+
+        console.log('📄 CLIENT REPORT TOOL: Client report generated for:', resolvedClientName);
+
+        return {
+          id,
+          title: finalTitle,
+          kind: "client-report",
+          content: documentContent,
+          clientName: resolvedClientName,
+        };
+      } catch (error) {
+        console.error('❌ CLIENT REPORT TOOL: Error generating client report:', error);
+
+        if (hasStreamedContent) {
+          dataStream.write({ type: "data-finish", data: null, transient: true });
+        }
+
+        return {
+          error: error instanceof Error
+            ? error.message
+            : "Failed to generate client report.",
+        };
       }
-
-      // Set artifact metadata first (this triggers artifact creation)
-      dataStream.write({
-        type: "data-kind",
-        data: "client-report",
-        transient: true,
-      });
-
-      dataStream.write({
-        type: "data-id",
-        data: id,
-        transient: true,
-      });
-
-      dataStream.write({
-        type: "data-title",
-        data: `${reportTitle} - ${clientName}`,
-        transient: true,
-      });
-
-      // Clear any existing artifact data
-      dataStream.write({
-        type: "data-clear",
-        data: null,
-        transient: true,
-      });
-
-      // Generate the content
-      const documentContent = await generateClientReportContent({
-        clientName,
-        includeCommunicationHistory,
-        reportDate,
-        reportTitle,
-        dataStream
-      });
-
-      // Stream the content to the artifact
-      dataStream.write({
-        type: "data-textDelta",
-        data: documentContent,
-        transient: true,
-      });
-
-      // Save the document to database
-      await documentHandler.onCreateDocument({
-        id,
-        title: `${reportTitle} - ${clientName}`,
-        dataStream,
-        session,
-      });
-
-      dataStream.write({ type: "data-finish", data: null, transient: true });
-
-      console.log('📄 CLIENT REPORT TOOL: Client report generated for:', clientName);
-
-      return {
-        id,
-        title: `${reportTitle} - ${clientName}`,
-        kind: "client-report",
-        content: documentContent,
-        clientName,
-      };
     },
   });
 
